@@ -6,6 +6,18 @@ The platform runs entirely on the organiser's computer and live-synchronises rac
 
 This project was created by a teacher who has spent years running and supporting these kinds of events. Through that experience, the aim has been to keep the system simple enough for a busy school day, but polished and effective enough to feel like a real race-control production.
 
+## Screenshots
+
+![Race Control dashboard](public/assets/screenshots/admin.png)
+
+| Race Screen | Live Leaderboard |
+|-------------|------------------|
+| ![Projector race screen showing the live result view](public/assets/screenshots/race-screen.png) | ![Live leaderboard with Pole Position and standings](public/assets/screenshots/leaderboard.png) |
+
+| Schedule View | Backup Console |
+|---------------|----------------|
+| ![Live schedule view with upcoming and completed races](public/assets/screenshots/schedule.png) | ![Backup console with auto/manual backup mode and local library](public/assets/screenshots/backups.png) |
+
 ## Highlights
 
 - **Race control for one-day school events** — register teams, generate fixtures, start races, enter times, undo mistakes, reset safely, and export results from one operator screen.

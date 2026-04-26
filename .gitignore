@@ -23,4 +23,4 @@ Thumbs.db
 docs/
 *.log
 tmp/
-screenshots/
+/screenshots/
