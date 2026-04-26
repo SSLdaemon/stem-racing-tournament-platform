@@ -20,8 +20,6 @@ desktop.ini
 Thumbs.db
 
 # Local automation artifacts
-.codex
-.codex/
 docs/
 *.log
 tmp/
