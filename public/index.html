@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>F1 in Schools — Tournament Platform</title>
+<link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+<div class="ambient-grid"></div>
+<div id="topbar" data-page="home"></div>
+
+<main class="launcher">
+  <div class="hero">
+    <img class="launcher-logo" src="/assets/media/stem-on-track.svg" alt="STEM On Track" />
+    <h1 id="hero-title">Tournament Platform</h1>
+    <div class="sub">Build &middot; Learn &middot; Race</div>
+  </div>
+
+  <div class="panels">
+    <a class="panel" href="/admin" target="_blank">
+      <div class="icon">01</div>
+      <h2>Race Control</h2>
+      <p>Teams, fixtures, timing, results, archives.</p>
+    </a>
+    <a class="panel" href="/race" target="_blank">
+      <div class="icon">02</div>
+      <h2>Race Screen</h2>
+      <p>Versus intros, start lights, winner moments.</p>
+    </a>
+    <a class="panel" href="/leaderboard" target="_blank">
+      <div class="icon">03</div>
+      <h2>Leaderboard</h2>
+      <p>Standings, points, wins, fastest lap.</p>
+    </a>
+    <a class="panel" href="/schedule" target="_blank">
+      <div class="icon">04</div>
+      <h2>Schedule</h2>
+      <p>Upcoming races, QR access, recent results.</p>
+    </a>
+    <a class="panel" href="/bracket" target="_blank">
+      <div class="icon">05</div>
+      <h2>Bracket</h2>
+      <p>Knockout tree and finals progression.</p>
+    </a>
+    <a class="panel" href="/overlay" target="_blank">
+      <div class="icon">06</div>
+      <h2>Stream Overlay</h2>
+      <p>Transparent scorebug and standings ticker.</p>
+    </a>
+  </div>
+
+  <p class="muted small mt-4" id="server-info"></p>
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+  F1.onState(s => {
+    document.getElementById('hero-title').textContent = s.tournamentName || 'Tournament Platform';
+    const info = document.getElementById('server-info');
+    info.innerHTML = `Local server: <span class="mono">${s.serverUrl}</span> &middot; Tournament state: <strong>${s.state}</strong> &middot; ${s.teams.length} teams, ${s.matches.length} matches`;
+  });
+</script>
+</body>
+</html>

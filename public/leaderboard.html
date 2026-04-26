@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Leaderboard — F1 in Schools</title>
+<link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+<div id="topbar" data-page="leaderboard"></div>
+<main class="wrap stack">
+
+  <section class="media-head race">
+    <div class="media-copy">
+      <div class="media-eyebrow">Live Event Standings</div>
+      <div class="media-title">Leaderboard</div>
+      <div class="media-subtitle">Points, wins and fastest laps update as each result is confirmed.</div>
+    </div>
+    <img class="media-mark" src="/assets/media/stem-on-track.svg" alt="STEM On Track" />
+  </section>
+
+  <div class="grid grid-2" id="topGrid">
+    <div id="poleContainer"></div>
+    <div id="headlineContainer"></div>
+  </div>
+
+  <section class="card">
+    <div class="section-title">Overall Standings</div>
+    <div id="overallStandings"></div>
+  </section>
+
+  <section class="card" id="groupsCard" style="display: none;">
+    <div class="section-title">Group Standings</div>
+    <div class="grid" id="groupStandings" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));"></div>
+  </section>
+
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+F1.onState(render);
+
+function render(s) {
+  renderPole(s);
+  renderHeadline(s);
+  renderOverall(s);
+  renderGroups(s);
+}
+
+function renderPole(s) {
+  const wrap = document.getElementById('poleContainer');
+  if (!s.polePosition) {
+    wrap.innerHTML = `
+      <div class="card" style="display: flex; align-items: center; gap: 18px;">
+        <div style="font-family: var(--font-display); font-weight: 900; font-size: 80px; color: var(--gold); line-height: 1;">★</div>
+        <div>
+          <div class="section-title" style="margin: 0;">Pole Position</div>
+          <p class="muted">No times yet — waiting for the first race.</p>
+        </div>
+      </div>`;
+    return;
+  }
+  const t = s.polePosition.team;
+  wrap.innerHTML = `
+    <div class="pole-card">
+      ${t ? `<span class="logo lg" style="${F1.logoStyle(t)}"></span>` : ''}
+      <div style="flex: 1;">
+        <div class="title">★ Pole Position ★ Fastest Lap of Tournament</div>
+        <div class="name">${escapeHtml(t?.name || '')}</div>
+        <div class="muted small">${escapeHtml(t?.school || '')} · Set in match #${s.polePosition.matchNumber}</div>
+      </div>
+      <div class="time">${F1.fmtTime(s.polePosition.time)}</div>
+    </div>`;
+}
+
+function renderHeadline(s) {
+  const wrap = document.getElementById('headlineContainer');
+  const total = s.matches.length;
+  const done = s.matches.filter(m => m.completed).length;
+  const running = s.state === 'running';
+  const finished = s.state === 'finished';
+  wrap.innerHTML = `
+    <div class="card">
+      <div class="section-title">${finished ? 'Tournament Complete' : running ? 'Tournament Live' : 'Awaiting Start'}</div>
+      <div class="row gap-2" style="align-items: flex-start; flex-wrap: wrap;">
+        <div>
+          <div class="muted small" style="letter-spacing: 0.15em; text-transform: uppercase;">Teams</div>
+          <div style="font-family: var(--font-display); font-weight: 900; font-size: 42px;">${s.teams.length}</div>
+        </div>
+        <div>
+          <div class="muted small" style="letter-spacing: 0.15em; text-transform: uppercase;">Matches</div>
+          <div style="font-family: var(--font-display); font-weight: 900; font-size: 42px;">
+            <span style="color: var(--teal);">${done}</span><span class="muted">/${total}</span>
+          </div>
+        </div>
+        <div>
+          <div class="muted small" style="letter-spacing: 0.15em; text-transform: uppercase;">Progress</div>
+          <div style="height: 14px; width: min(220px, 100%); background: var(--bg-3); border-radius: 8px; overflow: hidden; margin-top: 8px;">
+            <div style="height: 100%; width: ${total ? (done / total * 100).toFixed(1) : 0}%; background: linear-gradient(90deg, var(--teal), var(--magenta));"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderOverall(s) {
+  const wrap = document.getElementById('overallStandings');
+  if (s.teams.length === 0) { wrap.innerHTML = '<p class="muted">No teams registered.</p>'; return; }
+  const rows = s.overallStandings.map((x, i) => `
+    <tr>
+      <td class="pos">P${i + 1}</td>
+      <td>
+        <div class="team-cell">
+          <span class="logo" style="${F1.logoStyle(x)}"></span>
+          <div>
+            <div class="team-name">${escapeHtml(x.name)}</div>
+            <div class="muted small">${escapeHtml(x.school || '')}</div>
+          </div>
+        </div>
+      </td>
+      <td class="tnum">${x.played}</td>
+      <td class="tnum" style="color: var(--green);">${x.wins}</td>
+      <td class="tnum" style="color: var(--text-dim);">${x.losses}</td>
+      <td class="pts">${x.points}</td>
+      <td class="tnum mono">${F1.fmtTime(x.fastestLap)}</td>
+    </tr>`).join('');
+
+  wrap.innerHTML = `
+    <table class="leaderboard-table">
+      <thead><tr><th>Pos</th><th>Team</th><th>P</th><th>W</th><th>L</th><th>Pts</th><th>Fastest</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function renderGroups(s) {
+  const card = document.getElementById('groupsCard');
+  const wrap = document.getElementById('groupStandings');
+  if (!s.groupStandings || s.groupStandings.length < 2) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  wrap.innerHTML = s.groupStandings.map(gs => `
+    <div class="card" style="padding: 18px;">
+      <h3>Group ${String.fromCharCode(65 + gs.groupIndex)}</h3>
+      <table class="data">
+        <thead><tr><th>Pos</th><th>Team</th><th>P</th><th>W</th><th>L</th><th>Pts</th></tr></thead>
+        <tbody>
+          ${gs.standings.map((x, i) => `
+            <tr>
+              <td class="strong">${i + 1}</td>
+              <td><div class="team-cell"><span class="logo sm" style="${F1.logoStyle(x)}"></span>${escapeHtml(x.name)}</div></td>
+              <td class="tnum">${x.played}</td>
+              <td class="tnum">${x.wins}</td>
+              <td class="tnum">${x.losses}</td>
+              <td class="strong" style="color: var(--teal);">${x.points}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`).join('');
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+</script>
+</body>
+</html>

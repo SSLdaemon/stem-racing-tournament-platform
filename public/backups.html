@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Backups - STEM Racing</title>
+<link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+<div id="topbar" data-page="backups"></div>
+
+<main class="wrap stack">
+  <section class="media-head build">
+    <div class="media-copy">
+      <div class="media-eyebrow">Admin Tools</div>
+      <div class="media-title">Backups</div>
+      <div class="media-subtitle">Create ZIP saves, restore tournaments, and manage local safety archives.</div>
+    </div>
+    <img class="media-mark" src="/assets/media/stem-on-track.svg" alt="STEM On Track" />
+  </section>
+
+  <section class="card">
+    <div class="section-title">Backup Mode</div>
+    <div class="row gap-1 backup-mode-row">
+      <div class="segmented-control" role="group" aria-label="Backup mode">
+        <button id="autoBackupModeBtn" class="btn" type="button" data-mode="auto">Auto Backup</button>
+        <button id="manualBackupModeBtn" class="btn" type="button" data-mode="manual">Manual Backup</button>
+      </div>
+      <button id="runLocalBackupBtn" class="btn primary" type="button">Back Up Now</button>
+      <span id="backupModeStatus" class="muted small"></span>
+    </div>
+  </section>
+
+  <section class="grid grid-2 backup-grid">
+    <div class="card">
+      <div class="section-title">Create Backup ZIP</div>
+      <div class="backup-option">
+        <label class="check-row">
+          <input id="includeLogos" type="checkbox" checked />
+          <span>
+            <strong>Include team logos</strong>
+            <small>Core tournament data is always included.</small>
+          </span>
+        </label>
+      </div>
+      <div class="row gap-1">
+        <button id="createBackupBtn" class="btn primary" type="button">Create Backup ZIP</button>
+        <span id="createStatus" class="muted small"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Restore Backup ZIP</div>
+      <div class="warning-box">
+        Restoring replaces the current tournament after creating a safety archive.
+      </div>
+      <div class="field">
+        <label>Backup ZIP</label>
+        <input id="backupFile" type="file" accept=".zip,application/zip" />
+      </div>
+      <div class="row gap-1">
+        <button id="restoreUploadBtn" class="btn danger" type="button">Restore Uploaded ZIP</button>
+        <span id="restoreStatus" class="muted small"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row" style="align-items: flex-start;">
+      <div>
+        <div class="section-title">Local Backup Library</div>
+        <p class="muted small">Backups stored on this computer in <span class="mono">data/backups/</span>. Clearing this library does not delete the live tournament.</p>
+      </div>
+      <span class="spacer"></span>
+      <button id="refreshLibraryBtn" class="btn" type="button">Refresh</button>
+      <button id="clearLibraryBtn" class="btn danger" type="button">Delete All Backups</button>
+    </div>
+    <div id="backupLibrary" class="mt-2"></div>
+  </section>
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+(() => {
+  const byId = id => document.getElementById(id);
+  const includeLogos = byId('includeLogos');
+  const backupFile = byId('backupFile');
+  const createBackupBtn = byId('createBackupBtn');
+  const restoreUploadBtn = byId('restoreUploadBtn');
+  const refreshLibraryBtn = byId('refreshLibraryBtn');
+  const clearLibraryBtn = byId('clearLibraryBtn');
+  const autoBackupModeBtn = byId('autoBackupModeBtn');
+  const manualBackupModeBtn = byId('manualBackupModeBtn');
+  const runLocalBackupBtn = byId('runLocalBackupBtn');
+  const createStatus = byId('createStatus');
+  const restoreStatus = byId('restoreStatus');
+  const backupModeStatus = byId('backupModeStatus');
+  const backupLibrary = byId('backupLibrary');
+
+  function setBusy(button, busy) {
+    button.disabled = busy;
+    button.classList.toggle('busy', busy);
+  }
+
+  async function readError(res) {
+    const body = await res.json().catch(() => null);
+    return body?.error || res.statusText || 'Request failed';
+  }
+
+  function filenameFromResponse(res) {
+    const header = res.headers.get('content-disposition') || '';
+    const match = header.match(/filename="([^"]+)"/i) || header.match(/filename=([^;]+)/i);
+    return match ? match[1].trim() : null;
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function formatDate(value) {
+    if (!value) return '-';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '-';
+    return d.toLocaleString();
+  }
+
+  function formatBytes(bytes) {
+    const n = Number(bytes || 0);
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[ch]));
+  }
+
+  async function createBackup() {
+    setBusy(createBackupBtn, true);
+    createStatus.textContent = 'Creating...';
+    try {
+      const res = await fetch('/api/backups/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ logos: includeLogos.checked }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      downloadBlob(await res.blob(), filenameFromResponse(res) || 'stem-racing-backup.zip');
+      createStatus.textContent = 'Downloaded';
+      F1.toast('Backup ZIP created');
+      await loadLibrary();
+    } catch (err) {
+      createStatus.textContent = '';
+      F1.toast(err.message, { type: 'error' });
+    } finally {
+      setBusy(createBackupBtn, false);
+    }
+  }
+
+  async function restoreUploadedBackup() {
+    if (!backupFile.files[0]) {
+      F1.toast('Choose a backup ZIP first.', { type: 'error' });
+      return;
+    }
+    if (!confirm('Restore this backup? The current tournament will be archived first, then replaced.')) return;
+    setBusy(restoreUploadBtn, true);
+    restoreStatus.textContent = 'Restoring...';
+    try {
+      const fd = new FormData();
+      fd.append('backup', backupFile.files[0]);
+      const res = await F1.api('POST', '/api/backups/restore', fd, true);
+      backupFile.value = '';
+      restoreStatus.textContent = 'Restored';
+      F1.toast(res.safetyArchivePath ? 'Restored. Safety archive created first.' : 'Restored', { duration: 5000 });
+      await loadLibrary();
+    } catch (err) {
+      restoreStatus.textContent = '';
+      F1.toast(err.message, { type: 'error' });
+    } finally {
+      setBusy(restoreUploadBtn, false);
+    }
+  }
+
+  async function restoreLocalBackup(id, warning) {
+    const message = warning
+      ? `${warning}\n\nRestore this backup? The current tournament will be archived first, then replaced.`
+      : 'Restore this backup? The current tournament will be archived first, then replaced.';
+    if (!confirm(message)) return;
+    try {
+      const res = await F1.api('POST', '/api/backups/restore-local', { id });
+      F1.toast(res.safetyArchivePath ? 'Local backup restored. Safety archive created first.' : 'Local backup restored', { duration: 5000 });
+      await loadLibrary();
+    } catch (err) {
+      F1.toast(err.message, { type: 'error' });
+    }
+  }
+
+  function renderBackupMode(status = {}) {
+    const mode = status.mode === 'manual' ? 'manual' : 'auto';
+    const minutes = status.intervalMinutes || 5;
+    autoBackupModeBtn.classList.toggle('active', mode === 'auto');
+    manualBackupModeBtn.classList.toggle('active', mode === 'manual');
+    autoBackupModeBtn.setAttribute('aria-pressed', mode === 'auto' ? 'true' : 'false');
+    manualBackupModeBtn.setAttribute('aria-pressed', mode === 'manual' ? 'true' : 'false');
+    backupModeStatus.textContent = mode === 'auto'
+      ? `Auto backup every ${minutes} minutes`
+      : 'Manual backup only';
+  }
+
+  async function setBackupMode(mode) {
+    setBusy(autoBackupModeBtn, true);
+    setBusy(manualBackupModeBtn, true);
+    backupModeStatus.textContent = 'Saving...';
+    try {
+      const res = await F1.api('POST', '/api/backups/mode', { mode });
+      renderBackupMode(res.backup);
+      F1.toast(mode === 'auto' ? 'Auto backup enabled' : 'Manual backup enabled');
+    } catch (err) {
+      F1.toast(err.message, { type: 'error' });
+      await loadLibrary();
+    } finally {
+      setBusy(autoBackupModeBtn, false);
+      setBusy(manualBackupModeBtn, false);
+    }
+  }
+
+  async function runLocalBackup() {
+    setBusy(runLocalBackupBtn, true);
+    backupModeStatus.textContent = 'Backing up...';
+    try {
+      const res = await F1.api('POST', '/api/backups/run');
+      renderBackupMode(res.backup);
+      renderLibrary(res.backups || []);
+      F1.toast(res.backupPath ? 'Local backup created' : 'No database found to back up', { duration: 5000 });
+    } catch (err) {
+      F1.toast(err.message, { type: 'error' });
+      await loadLibrary();
+    } finally {
+      setBusy(runLocalBackupBtn, false);
+    }
+  }
+
+  async function clearBackupLibrary() {
+    const message = 'Delete all local backups and safety archives in data/backups/?\n\nThe current live tournament, teams, results, and uploaded logos will remain.';
+    if (!confirm(message)) return;
+    setBusy(clearLibraryBtn, true);
+    try {
+      const res = await F1.api('DELETE', '/api/backups');
+      renderBackupMode(res.backup);
+      renderLibrary(res.backups || []);
+      F1.toast(res.deleted ? `Deleted ${res.deleted} backup item(s)` : 'Backup library already empty', { duration: 5000 });
+    } catch (err) {
+      F1.toast(err.message, { type: 'error' });
+    } finally {
+      setBusy(clearLibraryBtn, false);
+    }
+  }
+
+  function renderLibrary(backups) {
+    if (!backups.length) {
+      backupLibrary.innerHTML = '<p class="muted">No local backups yet.</p>';
+      return;
+    }
+    backupLibrary.innerHTML = `
+      <div class="table-scroll">
+        <table class="data backup-table">
+          <thead>
+            <tr>
+              <th>Backup</th>
+              <th>Type</th>
+              <th>Created</th>
+              <th>Logos</th>
+              <th>Size</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${backups.map(item => `
+              <tr>
+                <td>
+                  <div class="strong">${escapeHtml(item.label || item.name)}</div>
+                  ${item.warning ? `<div class="muted small">${escapeHtml(item.warning)}</div>` : ''}
+                </td>
+                <td><span class="badge ${item.kind === 'archive' ? 'group' : 'completed'}">${item.kind === 'archive' ? 'Archive' : 'Auto'}</span></td>
+                <td>${escapeHtml(formatDate(item.createdAt))}</td>
+                <td>${item.hasLogos ? 'Included' : 'No logos'}</td>
+                <td>${escapeHtml(formatBytes(item.size))}</td>
+                <td>
+                  <div class="row gap-1 backup-actions">
+                    <a class="btn" href="/api/backups/download-local/${encodeURIComponent(item.id)}" download>Download</a>
+                    <button class="btn danger" type="button" data-restore="${item.id}">Restore</button>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    backupLibrary.querySelectorAll('[data-restore]').forEach(button => {
+      const item = backups.find(backup => backup.id === button.dataset.restore);
+      button.addEventListener('click', () => restoreLocalBackup(item.id, item.warning));
+    });
+  }
+
+  async function loadLibrary() {
+    backupLibrary.innerHTML = '<p class="muted">Loading backups...</p>';
+    try {
+      const res = await F1.api('GET', '/api/backups');
+      renderBackupMode(res.backup);
+      renderLibrary(res.backups || []);
+    } catch (err) {
+      backupLibrary.innerHTML = `<p class="muted">${err.message}</p>`;
+    }
+  }
+
+  createBackupBtn.addEventListener('click', createBackup);
+  restoreUploadBtn.addEventListener('click', restoreUploadedBackup);
+  refreshLibraryBtn.addEventListener('click', loadLibrary);
+  clearLibraryBtn.addEventListener('click', clearBackupLibrary);
+  autoBackupModeBtn.addEventListener('click', () => setBackupMode('auto'));
+  manualBackupModeBtn.addEventListener('click', () => setBackupMode('manual'));
+  runLocalBackupBtn.addEventListener('click', runLocalBackup);
+  loadLibrary();
+})();
+</script>
+</body>
+</html>

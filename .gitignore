@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Runtime data
+data/*.db
+data/*.db-*
+data/logos/
+data/backups/
+
+# Local environment
+.env
+.env.*
+
+# Large source media kit kept outside version control
+Media Kit/
+
+# OS metadata
+.DS_Store
+desktop.ini
+Thumbs.db
+
+# Local automation artifacts
+.codex
+.codex/
+docs/
+*.log
+tmp/
+screenshots/

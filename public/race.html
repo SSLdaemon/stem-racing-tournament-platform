@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Race Screen — F1 in Schools</title>
+<link rel="stylesheet" href="/assets/styles.css" />
+<style>
+  body { overflow: hidden; }
+  .race-root { position: relative; height: 100vh; width: 100vw; isolation: isolate; }
+  .matchchip {
+    position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+    font-family: var(--font-display); font-weight: 900;
+    font-size: 20px; letter-spacing: 0.3em; text-transform: uppercase;
+    color: var(--text-dim); z-index: 5;
+  }
+  .matchchip strong { color: var(--teal); margin: 0 8px; }
+
+  .tournament-title {
+    position: absolute; bottom: 24px; right: 30px;
+    font-family: var(--font-display); font-weight: 800;
+    font-size: 18px; letter-spacing: 0.3em; text-transform: uppercase;
+    color: var(--text-faint); z-index: 5;
+  }
+  .tournament-title::before { content: '● '; color: var(--red); font-size: 12px; }
+
+  .idle-hero {
+    display: grid; place-items: center; height: 100%;
+    text-align: center;
+  }
+  .idle-hero h1 { font-size: clamp(60px, 12vw, 140px); background: linear-gradient(90deg, var(--teal), var(--magenta)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .idle-hero p { color: var(--text-dim); font-size: 22px; letter-spacing: 0.3em; text-transform: uppercase; margin-top: 10px; }
+
+  .audio-banner {
+    position: fixed; top: 20px; left: 20px; z-index: 100;
+    padding: 12px 18px;
+    background: linear-gradient(90deg, rgba(255, 204, 51, 0.2), rgba(255, 46, 146, 0.15));
+    border: 1px solid rgba(255, 204, 51, 0.4); border-radius: 8px;
+    font-family: var(--font-display); font-weight: 700;
+    letter-spacing: 0.15em; text-transform: uppercase; font-size: 13px;
+    color: var(--gold); cursor: pointer;
+  }
+  .audio-banner:hover { background: linear-gradient(90deg, rgba(255, 204, 51, 0.3), rgba(255, 46, 146, 0.2)); }
+
+  @media (max-width: 800px) {
+    .audio-banner {
+      top: 14px; left: 14px; right: 14px;
+      padding: 10px 12px;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+    }
+    .tournament-title {
+      left: 24px; right: 24px; bottom: 18px;
+      max-width: calc(100vw - 48px);
+      font-size: 12px;
+      letter-spacing: 0.22em;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="ambient-grid"></div>
+<main class="race-root" id="stage"></main>
+<img class="race-brand-bug" src="/assets/media/stem-on-track.svg" alt="STEM On Track" />
+<div id="audioBanner" class="audio-banner" style="display: none;">▶ Click anywhere to enable broadcast audio</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/common.js"></script>
+<script src="/assets/audio.js"></script>
+<script src="/assets/car-svg.js"></script>
+<script src="/assets/confetti.js"></script>
+<script>
+(() => {
+  const stage = document.getElementById('stage');
+  const audioBanner = document.getElementById('audioBanner');
+
+  let audioEnabled = false;
+  let lastMode = null;
+  let lastMatchId = null;
+  let lastMatchCompleted = false;
+
+  // audio gate — browser requires user gesture before any sound
+  audioBanner.style.display = 'block';
+  const enableAudio = () => {
+    if (audioEnabled) return;
+    F1Audio.enable();
+    audioEnabled = true;
+    audioBanner.style.display = 'none';
+  };
+  document.addEventListener('click', enableAudio, { once: true });
+  document.addEventListener('keydown', enableAudio, { once: true });
+
+  F1.onState(renderStage);
+
+  function renderStage(s) {
+    const mode = s.raceScreenMode || 'idle';
+    const byId = new Map(s.teams.map(t => [t.id, t]));
+    const m = s.currentMatch;
+
+    // --- detect transitions so we can trigger audio/confetti ---
+    const justCompleted = m && m.completed && (lastMatchId !== m.id || !lastMatchCompleted);
+    const modeChanged = mode !== lastMode;
+
+    if (s.state === 'finished' && mode !== 'idle') {
+      renderCeremony(s);
+      if (modeChanged) {
+        F1Confetti.rain(8000);
+        setTimeout(() => F1Audio.crowdCheer(3.5), 300);
+        setTimeout(() => F1Audio.sweep(), 800);
+        setTimeout(() => F1Audio.sweep(), 1800);
+        setTimeout(() => F1Audio.sweep(), 2800);
+      }
+      lastMode = mode;
+      return;
+    }
+
+    if (mode === 'idle' || !m) {
+      renderIdle(s);
+      if (modeChanged && audioEnabled) F1Audio.idleStop();
+      lastMode = mode; lastMatchId = null; lastMatchCompleted = false;
+      return;
+    }
+
+    renderMatch(s, m, byId, mode);
+
+    // trigger mode-change effects
+    if (modeChanged && audioEnabled) {
+      if (mode === 'intro') {
+        F1Audio.idleStart();
+        setTimeout(() => F1Audio.rev(0.4), 600);
+      } else if (mode === 'lights') {
+        F1Audio.idleStop();
+      } else if (mode === 'racing') {
+        F1Audio.idleStop();
+        F1Audio.rev(1.2);
+      } else if (mode === 'result') {
+        F1Audio.idleStop();
+        if (justCompleted) {
+          F1Audio.crowdCheer(2.5);
+          F1Confetti.burst({ x: 0.5, y: 0.5, count: 120 });
+        }
+      }
+    }
+
+    lastMode = mode;
+    lastMatchId = m.id;
+    lastMatchCompleted = !!m.completed;
+  }
+
+  // ---- renderers -------------------------------------------------------
+  function renderIdle(s) {
+    stage.innerHTML = `
+      <div class="idle-hero media-idle">
+        <div>
+          <img src="/assets/media/stem-on-track.svg" alt="STEM On Track" />
+          <h1>${escapeHtml(s.tournamentName || 'F1 in Schools')}</h1>
+          <p>Build. Learn. Race.</p>
+        </div>
+      </div>
+      <div class="tournament-title">${escapeHtml(s.tournamentName || '')}</div>`;
+  }
+
+  function renderMatch(s, m, byId, mode) {
+    const a = byId.get(m.teamAId);
+    const b = byId.get(m.teamBId);
+    const introClass = mode === 'intro' ? 'intro' : '';
+    const matchLabel = getMatchLabel(m);
+
+    let resultHtml = '';
+    if (mode === 'result' && m.completed) {
+      resultHtml = renderPhotoFinish(a, b, m);
+    }
+
+    stage.innerHTML = `
+      <div class="matchchip">Match <strong>${m.matchNumber}</strong> &middot; ${matchLabel}</div>
+      <div class="race-stage">
+        <div>
+          <div class="versus ${introClass}">
+            <div class="team left">
+              <span class="logo xl" style="${F1.logoStyle(a)}"></span>
+              <div class="car-livery">${a ? F1Car.render({ color: a.color || '#00e6d2', flip: false }) : ''}</div>
+              <div class="name">${a ? escapeHtml(a.name) : 'TBD'}</div>
+              <div class="school">${a ? escapeHtml(a.school || '') : ''}</div>
+              ${m.completed && m.timeA != null ? `<div class="time">${F1.fmtTime(m.timeA)}</div>` : ''}
+            </div>
+            <div class="vs">VS</div>
+            <div class="team right">
+              <span class="logo xl" style="${F1.logoStyle(b)}"></span>
+              <div class="car-livery">${b ? F1Car.render({ color: b.color || '#ff2e92', flip: true }) : ''}</div>
+              <div class="name">${b ? escapeHtml(b.name) : 'TBD'}</div>
+              <div class="school">${b ? escapeHtml(b.school || '') : ''}</div>
+              ${m.completed && m.timeB != null ? `<div class="time">${F1.fmtTime(m.timeB)}</div>` : ''}
+            </div>
+          </div>
+
+          ${mode === 'lights' ? lightsHtml() : ''}
+          ${mode === 'racing' ? '<div class="race-title mt-3">RACING NOW</div>' : ''}
+        </div>
+      </div>
+      ${resultHtml}
+      <div class="tournament-title">${escapeHtml(s.tournamentName || '')}</div>`;
+
+    if (mode === 'lights') runLightSequence();
+    if (resultHtml) queueMicrotask(() => runPhotoFinishAnim(m));
+  }
+
+  function lightsHtml() {
+    return `
+      <div class="race-title mt-3">Lights out in...</div>
+      <div class="lights" id="lights">
+        ${[1,2,3,4,5].map(n => `<div class="light" data-i="${n}"></div>`).join('')}
+      </div>`;
+  }
+
+  let lightTimers = [];
+  function runLightSequence() {
+    lightTimers.forEach(t => clearTimeout(t));
+    lightTimers = [];
+    const lights = [...document.querySelectorAll('#lights .light')];
+    lights.forEach(l => l.classList.remove('on', 'out'));
+    const raceTitle = document.querySelector('.race-title');
+
+    for (let i = 0; i < 5; i++) {
+      lightTimers.push(setTimeout(() => {
+        lights[i]?.classList.add('on');
+        if (audioEnabled) F1Audio.lightsBeep();
+      }, (i + 1) * 1000));
+    }
+    const holdMs = 5000 + 500 + Math.random() * 1200;
+    lightTimers.push(setTimeout(() => {
+      lights.forEach(l => { l.classList.remove('on'); l.classList.add('out'); });
+      if (raceTitle) { raceTitle.textContent = 'GO GO GO'; raceTitle.style.color = 'var(--teal)'; raceTitle.style.fontSize = '64px'; }
+      if (audioEnabled) { F1Audio.lightsOut(); setTimeout(() => F1Audio.rev(1.0), 200); }
+    }, holdMs));
+  }
+
+  // ---- photo finish ----------------------------------------------------
+  function renderPhotoFinish(a, b, m) {
+    const gap = (m.timeA != null && m.timeB != null) ? Math.abs(m.timeA - m.timeB) : null;
+    const winner = m.winnerTeamId === m.teamAId ? a : b;
+    const isPhoto = gap != null && gap < 0.05;
+    return `
+      <div class="photo-finish">
+        <div class="pf-wrap">
+          <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 10px;">
+            <div>
+              <h2>Photo Finish</h2>
+              <div class="margin-display ${isPhoto ? 'photo' : ''}">
+                ${gap != null ? (isPhoto ? 'PHOTO · ' : 'Gap · ') + '+' + gap.toFixed(3) + 's' : 'Result'}
+              </div>
+            </div>
+            <div style="text-align: right;">
+              <div style="color: var(--text-dim); letter-spacing: 0.2em; text-transform: uppercase; font-size: 14px;">Winner</div>
+              <div style="font-family: var(--font-display); font-weight: 900; font-size: 48px; color: var(--gold);">${winner ? escapeHtml(winner.name) : '—'}</div>
+            </div>
+          </div>
+
+          <div class="track" id="pfTrack">
+            <div class="finish-line"></div>
+            <div class="lane lane-a">
+              <span class="lbl">Lane A · ${a ? escapeHtml(a.name) : ''}</span>
+              <div class="car" id="pfCarA" style="left: 0;">${a ? F1Car.render({ color: a.color || '#00e6d2' }) : ''}</div>
+            </div>
+            <div class="lane lane-b">
+              <span class="lbl">Lane B · ${b ? escapeHtml(b.name) : ''}</span>
+              <div class="car" id="pfCarB" style="left: 0;">${b ? F1Car.render({ color: b.color || '#ff2e92' }) : ''}</div>
+            </div>
+          </div>
+
+          <div class="winner-line">
+            <span style="color: var(--text-dim);">${a ? escapeHtml(a.name) : ''} <span class="mono" style="color:${m.winnerTeamId === m.teamAId ? 'var(--teal)' : 'var(--text-dim)'};">${F1.fmtTime(m.timeA)}</span></span>
+            <span class="winner">VS</span>
+            <span style="color: var(--text-dim);"><span class="mono" style="color:${m.winnerTeamId === m.teamBId ? 'var(--magenta)' : 'var(--text-dim)'};">${F1.fmtTime(m.timeB)}</span> ${b ? escapeHtml(b.name) : ''}</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function runPhotoFinishAnim(m) {
+    const carA = document.getElementById('pfCarA');
+    const carB = document.getElementById('pfCarB');
+    const track = document.getElementById('pfTrack');
+    if (!carA || !carB || !track) return;
+    const finishX = track.clientWidth - 50 - 180; // finish line minus car width
+    // positions are scaled so the winner reaches the finish line first,
+    // and the gap is proportional to the time difference.
+    const tA = m.timeA, tB = m.timeB;
+    if (tA == null && tB == null) return;
+    let endA = finishX, endB = finishX;
+    if (tA != null && tB != null) {
+      const fastest = Math.min(tA, tB);
+      endA = (fastest / tA) * finishX;
+      endB = (fastest / tB) * finishX;
+    } else if (tA == null) { endA = finishX * 0.6; }
+      else if (tB == null) { endB = finishX * 0.6; }
+    // start from off-screen-left
+    carA.style.left = '-200px';
+    carB.style.left = '-200px';
+    requestAnimationFrame(() => {
+      carA.style.left = endA + 'px';
+      carB.style.left = endB + 'px';
+    });
+  }
+
+  // ---- ceremony --------------------------------------------------------
+  function renderCeremony(s) {
+    const top = (s.overallStandings || []).slice(0, 3);
+    const champ = top[0], second = top[1], third = top[2];
+
+    stage.innerHTML = `
+      <div class="ceremony">
+        <div class="ceremony-title">★ CHAMPIONSHIP PODIUM ★</div>
+        <div class="podium-stage">
+          ${plinth(second, 2, 'p2')}
+          ${plinth(champ, 1, 'p1')}
+          ${plinth(third, 3, 'p3')}
+        </div>
+        <div class="pole-row">
+          ${s.polePosition ? `
+            <div class="pole-card" style="max-width: 640px;">
+              <div style="font-family: var(--font-display); font-weight: 900; font-size: 80px; color: var(--gold); line-height: 1;">★</div>
+              <div style="flex: 1;">
+                <div class="title">Pole Position · Fastest Lap</div>
+                <div class="name">${escapeHtml(s.polePosition.team?.name || '')}</div>
+              </div>
+              <div class="time">${F1.fmtTime(s.polePosition.time)}</div>
+            </div>` : ''}
+        </div>
+      </div>
+      <div class="tournament-title">${escapeHtml(s.tournamentName || '')}</div>`;
+
+    // staggered rise animations
+    const [p2el, p1el, p3el] = document.querySelectorAll('.ceremony .plinth');
+    setTimeout(() => p3el?.classList.add('show'), 400);
+    setTimeout(() => p2el?.classList.add('show'), 1400);
+    setTimeout(() => p1el?.classList.add('show'), 2600);
+  }
+
+  function plinth(stats, rank, cls) {
+    if (!stats) return `<div class="plinth ${cls}"><div class="rank">P${rank}</div><div class="team-name">—</div></div>`;
+    const logo = stats.logoPath ? `background-image:url(${stats.logoPath});` : '';
+    return `
+      <div class="plinth ${cls}">
+        <div class="rank">P${rank}</div>
+        <div class="logo-big" style="${logo}background-color: ${stats.color || '#243041'};"></div>
+        <div class="team-name">${escapeHtml(stats.name)}</div>
+        <div class="team-school">${escapeHtml(stats.school || '')}</div>
+        <div class="points">${stats.points} PTS · ${stats.wins}W-${stats.losses}L</div>
+      </div>`;
+  }
+
+  function getMatchLabel(m) {
+    if (m.stage === 'knockout') return m.round + (m.bracketSlot ? ' · ' + m.bracketSlot : '');
+    if (m.bonus) return 'Cross-group';
+    if (m.groupIndex != null && m.groupIndex >= 0) return 'Group ' + String.fromCharCode(65 + m.groupIndex);
+    return 'Group stage';
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+})();
+</script>
+</body>
+</html>

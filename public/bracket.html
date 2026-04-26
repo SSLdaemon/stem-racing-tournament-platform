@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bracket — F1 in Schools</title>
+<link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+<div id="topbar" data-page="bracket"></div>
+
+<main class="wrap">
+  <section class="media-head alt-race" style="margin-bottom: 18px;">
+    <div class="media-copy">
+      <div class="media-eyebrow">Knockout Stage</div>
+      <div class="media-title">Bracket</div>
+      <div class="media-subtitle">Quarterfinals, semifinals, third-place race and final progression.</div>
+    </div>
+    <img class="media-mark" src="/assets/media/stem-on-track.svg" alt="STEM On Track" />
+  </section>
+
+  <div class="card">
+    <div class="section-title">Knockout Bracket</div>
+    <div id="bracketRoot">
+      <p class="muted">Waiting for the group stage to complete...</p>
+    </div>
+  </div>
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+F1.onState(render);
+
+function render(s) {
+  const wrap = document.getElementById('bracketRoot');
+  const bracketMatches = s.bracketMatches || [];
+  if (bracketMatches.length === 0) {
+    wrap.innerHTML = '<p class="muted">Bracket unavailable — group stage not yet complete.</p>';
+    return;
+  }
+  const teamsById = new Map(s.teams.map(t => [t.id, t]));
+  const bySlot = new Map(bracketMatches.filter(m => m.bracketSlot).map(m => [m.bracketSlot, m]));
+
+  const qf = ['QF1','QF2','QF3','QF4'].map(sl => bySlot.get(sl)).filter(Boolean);
+  const sf = ['SF1','SF2'].map(sl => bySlot.get(sl)).filter(Boolean);
+  const finalM = bySlot.get('FINAL');
+  const thirdM = bySlot.get('B3');
+
+  const hasQF = qf.length > 0;
+
+  let html = `<div class="bracket" style="${hasQF ? '' : 'grid-template-columns: repeat(3, 1fr);'}">`;
+  if (hasQF) {
+    html += `<div class="bracket-col"><h3>Quarterfinals</h3>${qf.map(m => matchCard(m, teamsById)).join('')}</div>`;
+  }
+  html += `<div class="bracket-col"><h3>Semifinals</h3>${sf.map(m => matchCard(m, teamsById)).join('')}</div>`;
+  html += `<div class="bracket-col"><h3>Final &amp; 3rd Place</h3>
+    ${finalM ? matchCard(finalM, teamsById, { final: true }) : ''}
+    ${thirdM ? matchCard(thirdM, teamsById, { third: true }) : ''}
+  </div>`;
+  html += `</div>`;
+  wrap.innerHTML = html;
+}
+
+function matchCard(m, byId, opts = {}) {
+  const a = byId.get(m.teamAId);
+  const b = byId.get(m.teamBId);
+  const winA = m.completed && m.winnerTeamId === m.teamAId;
+  const winB = m.completed && m.winnerTeamId === m.teamBId;
+  const tbd = !a || !b;
+  const classes = ['bracket-match'];
+  if (tbd) classes.push('tbd');
+  if (opts.final) classes.push('final');
+  if (opts.third) classes.push('third');
+  return `
+    <div class="${classes.join(' ')}">
+      <div class="slot">${m.bracketSlot || m.round}</div>
+      <div class="side ${winA ? 'winner' : ''}">
+        <span class="name">${a ? escapeHtml(a.name) : '—'}</span>
+        <span class="time">${F1.fmtTime(m.timeA)}</span>
+      </div>
+      <div class="side ${winB ? 'winner' : ''}">
+        <span class="name">${b ? escapeHtml(b.name) : '—'}</span>
+        <span class="time">${F1.fmtTime(m.timeB)}</span>
+      </div>
+    </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+</script>
+</body>
+</html>

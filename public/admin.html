@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Race Control — F1 in Schools</title>
+<link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+<div id="topbar" data-page="admin"></div>
+
+<main class="wrap stack">
+
+  <section class="event-strip workshop">
+    <div class="media-copy">
+      <div class="media-eyebrow">STEM Racing Operations</div>
+      <div class="media-title">Race Control</div>
+      <div class="media-subtitle">Teams, fixtures, timing and archives.</div>
+    </div>
+    <div class="event-metrics">
+      <div class="event-metric"><strong id="metricTeams">0</strong><span>Teams</span></div>
+      <div class="event-metric"><strong id="metricMatches">0</strong><span>Matches</span></div>
+      <div class="event-metric"><strong id="metricDone">0</strong><span>Complete</span></div>
+    </div>
+  </section>
+
+  <!-- Tournament settings + current match ---------------------------------->
+  <section class="card">
+    <div class="row admin-control-row" style="align-items: flex-start;">
+      <div style="flex: 1;">
+        <div class="section-title">Race Control</div>
+        <div class="field" style="max-width: 420px;">
+          <label>Tournament name</label>
+          <input id="tournamentName" type="text" placeholder="F1 in Schools Championship" />
+        </div>
+        <div class="row gap-1" id="stateControls"></div>
+      </div>
+
+      <div id="currentMatchPanel" style="flex: 2; min-width: min(480px, 100%);"></div>
+    </div>
+  </section>
+
+  <!-- Team registration ---------------------------------------------------->
+  <section class="card" id="registrationSection">
+    <div class="section-title">Team Registration</div>
+    <form id="teamForm" enctype="multipart/form-data" class="stack">
+      <div class="row-fields">
+        <div class="field">
+          <label>Team name *</label>
+          <input name="name" type="text" required placeholder="Velocity Racing" />
+        </div>
+        <div class="field">
+          <label>School</label>
+          <input name="school" type="text" placeholder="Riverside High" />
+        </div>
+        <div class="field">
+          <label>Colour</label>
+          <input name="color" type="color" value="#00e6d2" />
+        </div>
+        <div class="field">
+          <label>Logo (PNG/JPG)</label>
+          <input name="logo" type="file" accept="image/*" />
+        </div>
+      </div>
+      <div class="row">
+        <button type="submit" class="btn primary">Add Team</button>
+        <span class="muted small" id="teamCountHint"></span>
+      </div>
+    </form>
+
+    <div class="mt-3" id="teamList"></div>
+  </section>
+
+  <!-- Schedule ------------------------------------------------------------->
+  <section class="card">
+    <div class="section-title">Schedule</div>
+    <div class="row gap-1" id="scheduleControls"></div>
+    <div class="mt-2" id="scheduleTable"></div>
+  </section>
+
+  <!-- Export ---------------------------------------------------------------->
+  <section class="card">
+    <div class="section-title">Export &amp; Backup</div>
+    <div class="row gap-1">
+      <a class="btn" href="/api/export/csv" download>Export CSV</a>
+      <a class="btn" href="/api/export/json" download>Export JSON</a>
+      <a class="btn primary" href="/backups" target="_blank">Open Backups</a>
+      <button class="btn" onclick="__admin.createArchive()">Create Archive</button>
+      <span class="muted small">Backup mode and local saves are managed on <span class="mono">/backups</span>.</span>
+    </div>
+  </section>
+
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+(() => {
+  const $ = sel => document.querySelector(sel);
+  const byId = id => document.getElementById(id);
+
+  // ----- tournament name input (debounced save) -----
+  const nameInput = byId('tournamentName');
+  let nameDebounce;
+  nameInput.addEventListener('input', () => {
+    clearTimeout(nameDebounce);
+    nameDebounce = setTimeout(() => {
+      fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tournament_name: nameInput.value }) });
+    }, 600);
+  });
+
+  // ----- team form -----
+  const teamForm = byId('teamForm');
+  teamForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(teamForm);
+    try {
+      const res = await F1.api('POST', '/api/teams', fd, true);
+      teamForm.reset();
+      F1.toast(res.scheduleInvalidated ? 'Team added. Schedule cleared — regenerate before starting.' : 'Team added');
+    } catch (err) { F1.toast(err.message, { type: 'error' }); }
+  });
+
+  async function deleteTeam(id) {
+    if (!confirm('Delete this team?')) return;
+    try {
+      const res = await F1.api('DELETE', '/api/teams/' + id);
+      F1.toast(res.scheduleInvalidated ? 'Team removed. Schedule cleared — regenerate before starting.' : 'Team removed');
+    }
+    catch (e) { F1.toast(e.message, { type: 'error' }); }
+  }
+
+  async function generateSchedule() {
+    if (!confirm('Generate a fresh schedule? This replaces any existing matches.')) return;
+    try {
+      const r = await F1.api('POST', '/api/schedule/generate');
+      F1.toast(`Schedule ready: ${r.matches} matches across ${r.groups} group(s)`);
+    } catch (e) { F1.toast(e.message, { type: 'error' }); }
+  }
+
+  async function startTournament() {
+    try { await F1.api('POST', '/api/tournament/start'); F1.toast('Tournament started — racing begins!'); }
+    catch (e) { F1.toast(e.message, { type: 'error' }); }
+  }
+
+  async function resetTournament() {
+    if (!confirm('RESET the entire tournament? All matches and results will be cleared. Teams remain registered.')) return;
+    try {
+      const res = await F1.api('POST', '/api/tournament/reset');
+      F1.toast(res.archivePath ? 'Tournament reset. Archive created first.' : 'Tournament reset');
+    }
+    catch (e) { F1.toast(e.message, { type: 'error' }); }
+  }
+
+  async function createArchive() {
+    try {
+      const res = await F1.api('POST', '/api/archive');
+      F1.toast(res.archivePath ? `Archive created: ${res.archivePath}` : 'Archive created', { duration: 5000 });
+    }
+    catch (e) { F1.toast(e.message, { type: 'error' }); }
+  }
+
+  async function setMode(mode) {
+    try { await F1.api('POST', '/api/race/mode', { mode }); }
+    catch (e) { F1.toast(e.message, { type: 'error' }); }
+  }
+
+  async function setCurrentMatch(matchNumber) {
+    try { await F1.api('POST', '/api/current-match', { matchNumber }); }
+    catch (e) { F1.toast(e.message, { type: 'error' }); }
+  }
+
+  async function undo() {
+    if (!confirm('Undo the last completed result?')) return;
+    try { await F1.api('POST', '/api/undo'); F1.toast('Last result undone'); }
+    catch (e) { F1.toast(e.message, { type: 'error' }); }
+  }
+
+  async function submitResult(matchId, timeA, timeB) {
+    try { await F1.api('POST', `/api/matches/${matchId}/result`, { timeA, timeB }); F1.toast('Result recorded'); }
+    catch (e) { F1.toast(e.message, { type: 'error' }); }
+  }
+
+  window.__admin = { deleteTeam, generateSchedule, startTournament, resetTournament, createArchive, setMode, setCurrentMatch, undo, submitResult };
+
+  // ----- renderers -----
+  F1.onState(s => {
+    if (document.activeElement !== nameInput) nameInput.value = s.tournamentName || '';
+
+    renderEventStrip(s);
+    renderState(s);
+    renderTeams(s);
+    renderCurrentMatch(s);
+    renderSchedule(s);
+  });
+
+  function renderEventStrip(s) {
+    byId('metricTeams').textContent = s.teams.length;
+    byId('metricMatches').textContent = s.matches.length;
+    byId('metricDone').textContent = s.matches.filter(m => m.completed).length;
+  }
+
+  function renderState(s) {
+    const wrap = byId('stateControls');
+    wrap.innerHTML = '';
+    const state = s.state;
+
+    if (state === 'registration') {
+      wrap.innerHTML = `
+        <span class="badge group">Registration open</span>
+        <button class="btn primary" onclick="__admin.generateSchedule()">Generate Schedule</button>
+        ${s.matches.length ? `<button class="btn" onclick="__admin.startTournament()">Start Tournament</button>` : ''}
+      `;
+    } else if (state === 'running') {
+      wrap.innerHTML = `
+        <span class="badge current">Running</span>
+        <button class="btn" onclick="__admin.undo()">Undo Last Result</button>
+        <button class="btn danger" onclick="__admin.resetTournament()">Reset Tournament</button>
+      `;
+    } else if (state === 'finished') {
+      wrap.innerHTML = `
+        <span class="badge knockout">Finished</span>
+        <button class="btn" onclick="__admin.undo()">Undo Last Result</button>
+        <button class="btn danger" onclick="__admin.resetTournament()">Reset Tournament</button>
+      `;
+    }
+
+    byId('registrationSection').style.opacity = state === 'registration' ? '1' : '0.45';
+    byId('registrationSection').style.pointerEvents = state === 'registration' ? 'auto' : 'none';
+  }
+
+  function renderTeams(s) {
+    const wrap = byId('teamList');
+    const hint = byId('teamCountHint');
+    hint.textContent = `${s.teams.length} teams registered (minimum 4, recommended 9–16 for full format).`;
+    if (s.teams.length === 0) { wrap.innerHTML = '<p class="muted">No teams yet. Add your first one above.</p>'; return; }
+    wrap.innerHTML = `
+      <table class="data">
+        <thead><tr><th></th><th>Team</th><th>School</th><th>Colour</th><th></th></tr></thead>
+        <tbody>
+          ${s.teams.map(t => `
+            <tr>
+              <td><span class="logo" style="${F1.logoStyle(t)}"></span></td>
+              <td class="strong">${escapeHtml(t.name)}</td>
+              <td>${escapeHtml(t.school || '—')}</td>
+              <td><span class="team-color" style="background:${t.color};"></span> <span class="mono small">${t.color}</span></td>
+              <td><button class="btn danger" onclick="__admin.deleteTeam(${t.id})">Remove</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  function renderCurrentMatch(s) {
+    const wrap = byId('currentMatchPanel');
+    const m = s.currentMatch;
+    const teamsById = new Map(s.teams.map(t => [t.id, t]));
+    if (s.state === 'registration') {
+      wrap.innerHTML = '<div class="card" style="padding: 18px;"><p class="muted">Register teams and generate a schedule.</p></div>';
+      return;
+    }
+    if (!m) {
+      wrap.innerHTML = '<div class="card" style="padding: 18px;"><p class="muted">No active match. All done!</p></div>';
+      return;
+    }
+    const a = teamsById.get(m.teamAId);
+    const b = teamsById.get(m.teamBId);
+    const next = s.nextMatch && s.nextMatch.matchNumber !== m.matchNumber ? s.nextMatch : null;
+    const nextA = next ? teamsById.get(next.teamAId) : null;
+    const nextB = next ? teamsById.get(next.teamBId) : null;
+
+    wrap.innerHTML = `
+      <div class="card" style="padding: 18px;">
+        <div class="row"><div class="section-title" style="margin: 0;">Now Up — Match ${m.matchNumber}</div>
+          <span class="spacer"></span>
+          <span class="badge ${m.stage === 'knockout' ? 'knockout' : (m.bonus ? 'bonus' : 'group')}">${matchLabel(m)}</span>
+        </div>
+        <div class="grid grid-2 mt-2" style="gap: 14px; align-items: center;">
+          <div class="team-cell">
+            ${a ? `<span class="logo lg" style="${F1.logoStyle(a)}"></span>
+                   <div><div class="strong" style="font-size:22px;">${escapeHtml(a.name)}</div><div class="muted small">${escapeHtml(a.school || '')}</div></div>` : '<span class="muted">TBD</span>'}
+          </div>
+          <div class="team-cell" style="justify-content: flex-end;">
+            ${b ? `<div style="text-align: right;"><div class="strong" style="font-size:22px;">${escapeHtml(b.name)}</div><div class="muted small">${escapeHtml(b.school || '')}</div></div>
+                   <span class="logo lg" style="${F1.logoStyle(b)}"></span>` : '<span class="muted">TBD</span>'}
+          </div>
+        </div>
+
+        <div class="row gap-1 mt-2" style="flex-wrap: wrap;">
+          <button class="btn primary" onclick="__admin.setMode('intro')">Show Versus Intro</button>
+          <button class="btn" onclick="__admin.setMode('lights')">Run Start Lights</button>
+          <button class="btn" onclick="__admin.setMode('racing')">Racing Now</button>
+          <button class="btn" onclick="__admin.setMode('result')">Show Result</button>
+          <button class="btn ghost" onclick="__admin.setMode('idle')">Hide</button>
+        </div>
+
+        ${m.completed ? `
+          <div class="mt-2" style="padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,0.03);">
+            <div class="strong">Result recorded</div>
+            <div class="muted small">Use Undo Last Result before entering a corrected time.</div>
+          </div>` : `
+          <form class="grid grid-3 mt-2" style="gap: 12px; align-items: end;"
+                onsubmit="event.preventDefault();
+                  __admin.submitResult(${m.id}, this.timeA.value, this.timeB.value);">
+            <div class="field">
+              <label>${a ? escapeHtml(a.name) : 'Team A'} time (s)</label>
+              <input name="timeA" type="number" step="0.001" min="0" placeholder="1.234" ${m.timeA != null ? `value="${m.timeA}"` : ''} ${a ? '' : 'disabled'} />
+            </div>
+            <div class="field">
+              <label>${b ? escapeHtml(b.name) : 'Team B'} time (s)</label>
+              <input name="timeB" type="number" step="0.001" min="0" placeholder="1.234" ${m.timeB != null ? `value="${m.timeB}"` : ''} ${b ? '' : 'disabled'} />
+            </div>
+            <div>
+              <button type="submit" class="btn magenta lg" ${a && b ? '' : 'disabled'}>Confirm Result</button>
+            </div>
+          </form>`}
+
+        ${next ? `
+          <hr style="border: none; border-top: 1px solid var(--line); margin: 16px 0;" />
+          <div class="row">
+            <span class="muted small" style="letter-spacing: 0.15em; text-transform: uppercase;">Next up &middot; Match ${next.matchNumber}</span>
+            <span class="spacer"></span>
+            <div class="team-cell"><span class="logo sm" style="${F1.logoStyle(nextA)}"></span>${nextA ? escapeHtml(nextA.name) : 'TBD'}</div>
+            <span class="muted">vs</span>
+            <div class="team-cell">${nextB ? escapeHtml(nextB.name) : 'TBD'}<span class="logo sm" style="${F1.logoStyle(nextB)}"></span></div>
+          </div>` : ''}
+      </div>`;
+  }
+
+  function matchLabel(m) {
+    if (m.stage === 'knockout') return m.round + (m.bracketSlot ? ' · ' + m.bracketSlot : '');
+    if (m.bonus) return 'Cross-group';
+    if (m.groupIndex != null && m.groupIndex >= 0) return 'Group ' + String.fromCharCode(65 + m.groupIndex);
+    return 'Group';
+  }
+
+  function renderSchedule(s) {
+    const controls = byId('scheduleControls');
+    controls.innerHTML = `<span class="muted small">${s.matches.length} matches &middot; ${s.matches.filter(m => m.completed).length} completed</span>`;
+
+    const wrap = byId('scheduleTable');
+    if (s.matches.length === 0) {
+      wrap.innerHTML = '<p class="muted">No schedule yet — add teams and click Generate Schedule.</p>';
+      return;
+    }
+    const byId2 = new Map(s.teams.map(t => [t.id, t]));
+    wrap.innerHTML = `
+      <table class="data">
+        <thead><tr><th>#</th><th>Stage</th><th>Team A</th><th>Team B</th><th>Time A</th><th>Time B</th><th>Winner</th><th></th></tr></thead>
+        <tbody>
+          ${s.matches.map(m => {
+            const a = byId2.get(m.teamAId), b = byId2.get(m.teamBId);
+            const win = byId2.get(m.winnerTeamId);
+            const isCurrent = s.currentMatch && s.currentMatch.matchNumber === m.matchNumber;
+            const cls = (m.completed ? 'completed' : '') + (isCurrent ? ' current' : '');
+            return `
+              <tr class="${cls}">
+                <td class="mono strong">${m.matchNumber}</td>
+                <td><span class="badge ${m.stage === 'knockout' ? 'knockout' : (m.bonus ? 'bonus' : 'group')}">${matchLabel(m)}</span></td>
+                <td>${a ? `<div class="team-cell"><span class="logo sm" style="${F1.logoStyle(a)}"></span>${escapeHtml(a.name)}</div>` : '<span class="muted">TBD</span>'}</td>
+                <td>${b ? `<div class="team-cell"><span class="logo sm" style="${F1.logoStyle(b)}"></span>${escapeHtml(b.name)}</div>` : '<span class="muted">TBD</span>'}</td>
+                <td class="mono">${F1.fmtTime(m.timeA)}</td>
+                <td class="mono">${F1.fmtTime(m.timeB)}</td>
+                <td class="strong" style="color:${m.completed ? 'var(--teal)' : 'var(--text-dim)'};">${win ? escapeHtml(win.name) : (m.completed ? '—' : '')}</td>
+                <td>
+                  ${!m.completed && a && b ? `<button class="btn ghost small" onclick="__admin.setCurrentMatch(${m.matchNumber})">Set Current</button>` : ''}
+                </td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+})();
+</script>
+</body>
+</html>

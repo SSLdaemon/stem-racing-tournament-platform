@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Stream Overlay — F1 in Schools</title>
+<link rel="stylesheet" href="/assets/styles.css" />
+<style>
+  html, body { background: transparent !important; }
+  body::before { display: none; }
+  .ambient-grid { display: none; }
+</style>
+</head>
+<body class="overlay-root">
+
+<div class="overlay-match-label" id="matchLabel"></div>
+
+<div class="overlay-scorebug" id="scorebug" style="display: none;">
+  <div class="lane lane-a">
+    <div class="logo-cell" id="logoA"></div>
+    <div class="name" id="nameA">—</div>
+    <div class="time" id="timeA">—</div>
+  </div>
+  <div class="lane lane-b">
+    <div class="time" id="timeB">—</div>
+    <div class="name" id="nameB">—</div>
+    <div class="logo-cell" id="logoB"></div>
+  </div>
+</div>
+
+<div class="overlay-ticker" id="ticker" style="display: none;">
+  <h4>Standings</h4>
+  <ol id="tickerList"></ol>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+F1.onState(s => {
+  const byId = new Map(s.teams.map(t => [t.id, t]));
+  const m = s.currentMatch;
+  const label = document.getElementById('matchLabel');
+  const scorebug = document.getElementById('scorebug');
+  const ticker = document.getElementById('ticker');
+
+  if (m && (s.raceScreenMode !== 'idle') && s.state !== 'finished') {
+    const a = byId.get(m.teamAId);
+    const b = byId.get(m.teamBId);
+    label.innerHTML = `Match <strong>${m.matchNumber}</strong> · ${matchLabel(m)}`;
+    scorebug.style.display = 'flex';
+    document.getElementById('logoA').style.cssText = logoBg(a);
+    document.getElementById('logoB').style.cssText = logoBg(b);
+    document.getElementById('nameA').textContent = a ? a.name : 'TBD';
+    document.getElementById('nameB').textContent = b ? b.name : 'TBD';
+    document.getElementById('timeA').textContent = F1.fmtTime(m.timeA);
+    document.getElementById('timeB').textContent = F1.fmtTime(m.timeB);
+  } else {
+    scorebug.style.display = 'none';
+    label.innerHTML = s.state === 'finished'
+      ? `● <strong>${escapeHtml(s.tournamentName || 'Tournament')}</strong> · Complete`
+      : `<strong>${escapeHtml(s.tournamentName || 'Tournament')}</strong>`;
+  }
+
+  // ticker - top 5 overall
+  const top = (s.overallStandings || []).slice(0, 5);
+  if (top.length > 0) {
+    ticker.style.display = '';
+    document.getElementById('tickerList').innerHTML = top.map((x, i) =>
+      `<li><span class="rk">P${i + 1}</span><span>${escapeHtml(x.name)}</span><span class="pts">${x.points}</span></li>`
+    ).join('');
+  } else {
+    ticker.style.display = 'none';
+  }
+});
+
+function logoBg(team) {
+  if (team && team.logoPath) return `background-image: url(${team.logoPath}); background-color: ${team.color || '#0a0c11'};`;
+  return `background: ${team?.color || '#243041'};`;
+}
+function matchLabel(m) {
+  if (m.stage === 'knockout') return m.round + (m.bracketSlot ? ' · ' + m.bracketSlot : '');
+  if (m.bonus) return 'Cross-group';
+  if (m.groupIndex != null && m.groupIndex >= 0) return 'Group ' + String.fromCharCode(65 + m.groupIndex);
+  return 'Group';
+}
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Schedule — F1 in Schools</title>
+<link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+<div id="topbar" data-page="schedule"></div>
+
+<main class="wrap stack">
+
+  <section class="media-head build">
+    <div class="media-copy">
+      <div class="media-eyebrow">Race Programme</div>
+      <div class="media-title">Schedule</div>
+      <div class="media-subtitle">Current race queue, recently completed runs and spectator access.</div>
+    </div>
+    <img class="media-mark" src="/assets/media/stem-on-track.svg" alt="STEM On Track" />
+  </section>
+
+  <div class="grid schedule-layout">
+
+    <section class="card">
+      <div class="row">
+        <div class="section-title" style="margin: 0;">Upcoming Matches</div>
+        <span class="spacer"></span>
+        <span class="muted small" id="summary"></span>
+      </div>
+      <div class="mt-2" id="upcomingList"></div>
+    </section>
+
+    <section class="card" style="text-align: center;">
+      <div class="section-title" style="justify-content: center;">Spectator Leaderboard</div>
+      <p class="muted small" style="margin-bottom: 14px;">Scan on your phone</p>
+      <div class="qr-box" style="margin: 0 auto;">
+        <img id="qrImg" alt="QR code to leaderboard" />
+        <div class="hint">live standings</div>
+      </div>
+      <p class="muted small mt-2 mono" id="serverUrl"></p>
+    </section>
+
+  </div>
+
+  <section class="card">
+    <div class="section-title">Completed</div>
+    <div id="completedList"></div>
+  </section>
+
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+F1.onState(render);
+
+function render(s) {
+  const byId = new Map(s.teams.map(t => [t.id, t]));
+  const upcoming = s.matches.filter(m => !m.completed).slice(0, 12);
+  const current = s.currentMatch;
+  const completed = s.matches.filter(m => m.completed).slice(-12).reverse();
+
+  document.getElementById('summary').textContent =
+    `${s.matches.filter(m => m.completed).length} / ${s.matches.length} races complete`;
+
+  const up = document.getElementById('upcomingList');
+  if (upcoming.length === 0) { up.innerHTML = '<p class="muted">No upcoming matches.</p>'; }
+  else {
+    up.innerHTML = upcoming.map(m => renderRow(m, byId, current)).join('');
+  }
+
+  const comp = document.getElementById('completedList');
+  if (completed.length === 0) { comp.innerHTML = '<p class="muted">No completed matches yet.</p>'; }
+  else comp.innerHTML = completed.map(m => renderRow(m, byId, null)).join('');
+
+  const qr = document.getElementById('qrImg');
+  qr.src = '/api/qr?target=' + encodeURIComponent((s.serverUrl || '') + '/leaderboard');
+  document.getElementById('serverUrl').textContent = (s.serverUrl || '') + '/leaderboard';
+}
+
+function renderRow(m, byId, current) {
+  const a = byId.get(m.teamAId);
+  const b = byId.get(m.teamBId);
+  const isCurrent = current && current.matchNumber === m.matchNumber;
+  const cls = 'sched-row' + (m.completed ? ' completed' : '') + (isCurrent ? ' current' : '');
+  const win = byId.get(m.winnerTeamId);
+  return `
+    <div class="${cls}">
+      <div class="mnum">#${m.matchNumber}</div>
+      <div><span class="badge ${m.stage === 'knockout' ? 'knockout' : (m.bonus ? 'bonus' : 'group')}">${matchLabel(m)}</span></div>
+      <div class="team-a">${a ? `<span class="logo sm" style="${F1.logoStyle(a)}"></span>${escapeHtml(a.name)}` : '<span class="muted">TBD</span>'}</div>
+      <div class="vs">vs</div>
+      <div class="team-b">${b ? `${escapeHtml(b.name)}<span class="logo sm" style="${F1.logoStyle(b)}"></span>` : '<span class="muted">TBD</span>'}</div>
+      <div class="time mono">${F1.fmtTime(m.timeA)}</div>
+      <div class="time mono">${F1.fmtTime(m.timeB)}</div>
+    </div>`;
+}
+
+function matchLabel(m) {
+  if (m.stage === 'knockout') return m.round + (m.bracketSlot ? ' · ' + m.bracketSlot : '');
+  if (m.bonus) return 'Cross-group';
+  if (m.groupIndex != null && m.groupIndex >= 0) return 'Group ' + String.fromCharCode(65 + m.groupIndex);
+  return 'Group';
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+</script>
+</body>
+</html>
