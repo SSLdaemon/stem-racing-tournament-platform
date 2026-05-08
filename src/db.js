@@ -88,7 +88,7 @@ function setConfig(key, value) {
 }
 
 const defaults = {
-  tournament_name: 'F1 in Schools Championship',
+  tournament_name: 'STEM Racing Championship',
   tournament_state: 'registration', // registration | running | finished
   current_match_number: null,
   last_completed_match_number: null,

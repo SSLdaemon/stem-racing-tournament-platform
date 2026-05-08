@@ -159,7 +159,7 @@ window.F1 = (function () {
     return `
       <header class="topbar">
         <div class="brand">
-          <img class="brand-logo" src="/assets/media/stem-on-track.svg" alt="STEM On Track" />
+          <img class="brand-logo" src="/assets/media/stem-racing-logo-dark.png" alt="STEM Racing" />
           <span class="brand-copy">
             <span class="brand-kicker">Race Control</span>
             <span id="brandName">Tournament Platform</span>

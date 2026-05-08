@@ -1,5 +1,7 @@
 # STEM Racing Tournament Platform
 
+![STEM Racing brand banner](public/assets/media/stem-racing-banner.jpg)
+
 A bespoke local event platform for F1 in Schools / STEM Racing-style head-to-head competitions. It is designed for the reality of school race days: one laptop, a few displays, excited teams, fast turnarounds, and no appetite for complicated cloud systems.
 
 The platform runs entirely on the organiser's computer and live-synchronises race control, projector screens, standings, fixtures, brackets, OBS overlays, backups, audio cues, and results through a simple local server. No accounts, no telemetry, no internet dependency during the event.
@@ -7,6 +9,16 @@ The platform runs entirely on the organiser's computer and live-synchronises rac
 This project was created by a teacher who has spent years running and supporting these kinds of events. Through that experience, the aim has been to keep the system simple enough for a busy school day, but polished and effective enough to feel like a real race-control production.
 
 ## Screenshots
+
+The app media has been updated to use STEM Racing event, track, logo, and design-analysis imagery.
+
+| Launcher Media | Race Screen Media |
+|----------------|-------------------|
+| ![STEM Racing timing gate](public/assets/media/race-hero.jpg) | ![STEM Racing model cars on track](public/assets/media/race-alt.jpg) |
+
+| Design Analysis | Start-Line Prep |
+|-----------------|-----------------|
+| ![STEM Racing CFD design analysis](public/assets/media/workshop-build.jpg) | ![STEM Racing cars being prepared for launch](public/assets/media/workshop-action.jpg) |
 
 ![Race Control dashboard](public/assets/screenshots/admin.png)
 
@@ -58,9 +70,18 @@ This project was created by a teacher who has spent years running and supporting
 
 - **Node.js 18 or newer** — [nodejs.org](https://nodejs.org)
 - A modern browser (Chrome, Edge, Firefox, Safari)
-- macOS or Linux
+- Windows, macOS, or Linux
 
 ## Getting started
+
+### Windows
+
+Double-click `start-windows.cmd`, or run:
+
+```cmd
+npm install
+npm start
+```
 
 ### macOS / Linux
 
@@ -69,7 +90,7 @@ chmod +x start.sh
 ./start.sh
 ```
 
-### Manual
+### Manual / all platforms
 
 ```bash
 npm install
@@ -163,7 +184,7 @@ Scoring: **win = 3 pts, loss = 1 pt**. Cross-group bonus races count toward each
 
 - **Undo after a knockout match has started**: if you undo a group-stage match after playoff matches have begun completing, the bracket seedings won't automatically rebuild (to avoid discarding playoff results). Easiest fix is to use Reset Tournament. The app does handle undo of the most recent match in a clean, safe way.
 - **Logos**: stored under `data/logos/`. Use **Create Archive** in admin to capture logos alongside `tournament.db`.
-- **Port**: defaults to `3000`. Set `PORT=4000 npm start` to change.
+- **Port**: defaults to `3000`. On macOS/Linux, set `PORT=4000 npm start` to change. On Windows PowerShell, use `$env:PORT=4000; npm start`.
 - **Exact ties**: the server rejects identical lane times, so if a race is truly tied you should rerun it or enter a more precise measurement.
 
 ## Enhancement ideas for later

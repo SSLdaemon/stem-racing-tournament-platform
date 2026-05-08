@@ -1,7 +1,7 @@
 {
   "name": "f1-stem-racing-tournament",
   "version": "1.0.0",
-  "description": "Local tournament platform for F1 in Schools / STEM Racing competitions",
+  "description": "Local tournament platform for STEM Racing competitions",
   "main": "server.js",
   "scripts": {
     "start": "node scripts/bootstrap.js",

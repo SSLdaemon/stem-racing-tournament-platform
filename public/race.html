@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Race Screen — F1 in Schools</title>
+<title>Race Screen - STEM Racing</title>
 <link rel="stylesheet" href="/assets/styles.css" />
 <style>
   body { overflow: hidden; }
@@ -61,7 +61,7 @@
 <body>
 <div class="ambient-grid"></div>
 <main class="race-root" id="stage"></main>
-<img class="race-brand-bug" src="/assets/media/stem-on-track.svg" alt="STEM On Track" />
+<img class="race-brand-bug" src="/assets/media/stem-racing-logo-dark.png" alt="STEM Racing" />
 <div id="audioBanner" class="audio-banner" style="display: none;">▶ Click anywhere to enable broadcast audio</div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -152,8 +152,8 @@
     stage.innerHTML = `
       <div class="idle-hero media-idle">
         <div>
-          <img src="/assets/media/stem-on-track.svg" alt="STEM On Track" />
-          <h1>${escapeHtml(s.tournamentName || 'F1 in Schools')}</h1>
+          <img src="/assets/media/stem-racing-logo-dark.png" alt="STEM Racing" />
+          <h1>${escapeHtml(s.tournamentName || 'STEM Racing')}</h1>
           <p>Build. Learn. Race.</p>
         </div>
       </div>

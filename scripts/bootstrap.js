@@ -17,8 +17,9 @@ function ensureBetterSqlite3() {
     return;
   } catch (err) {
     if (!isNativeAbiMismatch(err)) throw err;
+    const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     console.warn('[bootstrap] Detected a Node.js/native module mismatch. Rebuilding better-sqlite3...');
-    execFileSync('npm', ['rebuild', 'better-sqlite3'], {
+    execFileSync(npmBin, ['rebuild', 'better-sqlite3'], {
       cwd: ROOT,
       stdio: 'inherit',
     });

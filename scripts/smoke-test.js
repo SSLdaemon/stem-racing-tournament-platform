@@ -126,7 +126,9 @@ assert.equal(csvCell('=SUM(A1:A2)'), "'=SUM(A1:A2)", 'CSV cells that look like f
 assert.equal(csvCell('Team, Alpha'), '"Team, Alpha"', 'CSV cells with commas should still be quoted');
 
 const requiredMedia = [
-  'stem-on-track.svg',
+  'stem-racing-logo-dark.png',
+  'stem-racing-logo-light.jpg',
+  'stem-racing-banner.jpg',
   'espire.svg',
   'race-hero.jpg',
   'race-alt.jpg',
@@ -148,7 +150,7 @@ assert(styles.includes('.sound-toggle'), 'shared CSS should include the sound to
 assert(styles.includes('.segmented-control'), 'shared CSS should include segmented controls for backup mode');
 
 const common = fs.readFileSync(path.join(ROOT, 'public/assets/common.js'), 'utf8');
-assert(common.includes('/assets/media/stem-on-track.svg'), 'topbar should use the STEM On Track logo asset');
+assert(common.includes('/assets/media/stem-racing-logo-dark.png'), 'topbar should use the STEM Racing logo asset');
 assert(common.includes('/assets/audio.js'), 'shared UI should load the Web Audio engine');
 assert(common.includes('data-sound-toggle'), 'shared UI should expose a sound toggle');
 

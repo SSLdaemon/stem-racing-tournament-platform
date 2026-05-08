@@ -124,7 +124,7 @@ function makeManifest({ includeLogos, createdAt = new Date(), tournamentName = n
     version: BACKUP_VERSION,
     createdAt: createdAt.toISOString(),
     app: 'f1-stem-racing-tournament',
-    tournamentName: tournamentName || getConfig('tournament_name') || 'F1 in Schools Championship',
+    tournamentName: tournamentName || getConfig('tournament_name') || 'STEM Racing Championship',
     database: 'tournament.db',
     sections: {
       logos: !!includeLogos,
