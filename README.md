@@ -1,4 +1,4 @@
-# STEM Racing Tournament Platform
+# (unofficial) STEM Racing Tournament Platform
 
 ![STEM Racing brand banner](public/assets/media/stem-racing-banner.jpg)
 
@@ -10,15 +10,6 @@ This project was created by a teacher who has spent years running and supporting
 
 ## Screenshots
 
-The app media has been updated to use STEM Racing event, track, logo, and design-analysis imagery.
-
-| Launcher Media | Race Screen Media |
-|----------------|-------------------|
-| ![STEM Racing timing gate](public/assets/media/race-hero.jpg) | ![STEM Racing model cars on track](public/assets/media/race-alt.jpg) |
-
-| Design Analysis | Start-Line Prep |
-|-----------------|-----------------|
-| ![STEM Racing CFD design analysis](public/assets/media/workshop-build.jpg) | ![STEM Racing cars being prepared for launch](public/assets/media/workshop-action.jpg) |
 
 ![Race Control dashboard](public/assets/screenshots/admin.png)
 
