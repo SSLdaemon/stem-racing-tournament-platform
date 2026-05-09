@@ -2,11 +2,11 @@
 
 ![STEM Racing brand banner](public/assets/media/stem-racing-banner.jpg)
 
-A bespoke local event platform for F1 in Schools / STEM Racing-style head-to-head competitions. It is designed for the reality of school race days: one laptop, a few displays, excited teams, fast turnarounds, and no appetite for complicated cloud systems.
+A bespoke local event platform for F1 in Schools / STEM Racing-style head-to-head competitions. It is designed for the reality of school race days: one laptop, a few displays, excited teams, fast t[...]
 
-The platform runs entirely on the organiser's computer and live-synchronises race control, projector screens, standings, fixtures, brackets, OBS overlays, backups, audio cues, and results through a simple local server. No accounts, no telemetry, no internet dependency during the event.
+The platform runs entirely on the organiser's computer and live-synchronises race control, projector screens, standings, fixtures, brackets, OBS overlays, backups, audio cues, and results through a[...]
 
-This project was created by a teacher who has spent years running and supporting these kinds of events. Through that experience, the aim has been to keep the system simple enough for a busy school day, but polished and effective enough to feel like a real race-control production.
+This project was created by a teacher who has spent years running and supporting these kinds of events. Through that experience, the aim has been to keep the system simple enough for a busy school [...]
 
 ## Screenshots
 
@@ -15,9 +15,9 @@ This project was created by a teacher who has spent years running and supporting
 
 - **Race control for one-day school events** — register teams, generate fixtures, start races, enter times, undo mistakes, reset safely, and export results from one operator screen.
 - **Live displays for the room** — projector race screen, leaderboard, schedule, knockout bracket, OBS overlay, and backup tools all update in real time over WebSockets.
-- **F1-inspired presentation** — five-light start sequence, versus intros, colour-matched car liveries, photo-finish animation, podium ceremony, Pole Position award, ticker overlay, and subtle race-control sound effects.
+- **F1-inspired presentation** — five-light start sequence, versus intros, colour-matched car liveries, photo-finish animation, podium ceremony, Pole Position award, ticker overlay, and subtle r[...]
 - **Practical tournament management** — automatic schedule generation, group-stage scoring, knockout progression, fastest-lap tracking, CSV/JSON exports, and clear event-state handling.
-- **School-friendly resilience** — local SQLite data, downloadable ZIP backups, safe restore with a pre-restore archive, auto/manual local backup modes, and a one-click clear-out for old backup history.
+- **School-friendly resilience** — local SQLite data, downloadable ZIP backups, safe restore with a pre-restore archive, auto/manual local backup modes, and a one-click clear-out for old backup [...]
 - **Offline by design** — browser-based, local-network ready, and built to keep working even when the venue Wi-Fi or internet is not cooperating.
 
 ## Core Features
@@ -78,7 +78,7 @@ npm install
 npm start
 ```
 
-Then open **http://localhost:3000** in your browser. The console will also show a LAN address like `http://192.168.x.x:3000` which you can open on other devices on the same Wi-Fi (phones, tablets, another laptop for the projector, etc.).
+Then open **http://localhost:3000** in your browser. The console will also show a LAN address like `http://192.168.x.x:3000` which you can open on other devices on the same Wi-Fi (phones, tablets,[...]
 
 The race-control/admin and backup pages are open by default for quick one-day school events. Run it on a trusted event network, because anyone who can reach the server can operate the tournament.
 
@@ -96,7 +96,7 @@ This runs a fast schedule/bracket smoke test over multiple tournament sizes so r
 
 1. **Open `/admin`** on the operator laptop (the one running the server).
 2. **Register teams** — name, school, colour, logo (PNG / JPG, up to 4 MB).
-3. Click **Generate Schedule**. With 9–12 teams you get 2 groups; 13–16 teams you get 4 groups. Cross-group "bonus" matches are added automatically so every team reaches 5 matches. You can regenerate as many times as you want before starting.
+3. Click **Generate Schedule**. With 9–12 teams you get 2 groups; 13–16 teams you get 4 groups. Cross-group "bonus" matches are added automatically so every team reaches 5 matches. You can reg[...]
    - If you add or remove a team after generating the schedule, the schedule is cleared automatically so you can regenerate a clean bracket.
 4. Click **Start Tournament**.
 5. **On a second display** (or second browser window on your laptop), open `/race`. Drag it to the projector / big TV and press F11 for full-screen.
@@ -118,13 +118,13 @@ This runs a fast schedule/bracket smoke test over multiple tournament sizes so r
 2. URL: `http://localhost:3000/overlay`
 3. Width: 1920, Height: 1080 (or whatever your canvas is).
 4. Tick **Shutdown source when not visible** and **Refresh browser when scene becomes active** if you like.
-5. The overlay has a transparent background, so lay it on top of your track camera. The scorebug appears automatically when a match is active, and the standings ticker stays in the top-right throughout.
+5. The overlay has a transparent background, so lay it on top of your track camera. The scorebug appears automatically when a match is active, and the standings ticker stays in the top-right thro[...]
 
 ## Audio
 
-The race screen and race-control UI use synthesised audio generated directly in your browser — no audio files, works offline. Browsers block audio until the user interacts with the page, so **the first time you open `/race`, click anywhere on the page** (the golden banner in the corner tells you to). After that, the audio plays automatically through every stage of a race.
+The race screen and race-control UI use synthesised audio generated directly in your browser — no audio files, works offline. Browsers block audio until the user interacts with the page, so **t[...]
 
-Admin and backup pages include subtle button, confirmation, warning, backup/export, and race-action sounds. Use the **Sound on/off** toggle in the top bar to mute or re-enable these effects; the preference is saved in that browser.
+Admin and backup pages include subtle button, confirmation, warning, backup/export, and race-action sounds. Use the **Sound on/off** toggle in the top bar to mute or re-enable these effects; the [...]
 
 ## Keyboard tips
 
@@ -140,11 +140,11 @@ Admin and backup pages include subtle button, confirmation, warning, backup/expo
 - `data/backups/archive-*` — manual/pre-reset archives containing the DB plus uploaded logos, newest 10 kept
 - `/backups` — backup console for ZIP backup download, restore, and local backup library
 
-Backup ZIPs always include `tournament.db`. Tick **Include team logos** to include uploaded team logo files. Any restore creates a safety archive of the current tournament first, then replaces the live tournament and updates the connected display screens.
+Backup ZIPs always include `tournament.db`. Tick **Include team logos** to include uploaded team logo files. Any restore creates a safety archive of the current tournament first, then replaces th[...]
 
-Use **Auto Backup** on `/backups` to save a local DB copy every 5 minutes, or **Manual Backup** to stop the automatic timer and only save when **Back Up Now** is clicked. The selected mode is saved in the tournament database.
+Use **Auto Backup** on `/backups` to save a local DB copy every 5 minutes, or **Manual Backup** to stop the automatic timer and only save when **Back Up Now** is clicked. The selected mode is sav[...]
 
-Use **Delete All Backups** on `/backups` to clear old local backup/archive history before a new event. This only clears `data/backups/`; it does not delete the live tournament database or uploaded logos.
+Use **Delete All Backups** on `/backups` to clear old local backup/archive history before a new event. This only clears `data/backups/`; it does not delete the live tournament database or uploade[...]
 
 To start a completely fresh event, either use **Reset Tournament** in admin, or stop the server and delete `data/tournament.db`. Reset creates an archive first when possible.
 
@@ -163,7 +163,7 @@ Scoring: **win = 3 pts, loss = 1 pt**. Cross-group bonus races count toward each
 
 ## Known edge cases
 
-- **Undo after a knockout match has started**: if you undo a group-stage match after playoff matches have begun completing, the bracket seedings won't automatically rebuild (to avoid discarding playoff results). Easiest fix is to use Reset Tournament. The app does handle undo of the most recent match in a clean, safe way.
+- **Undo after a knockout match has started**: if you undo a group-stage match after playoff matches have begun completing, the bracket seedings won't automatically rebuild (to avoid discarding p[...]
 - **Logos**: stored under `data/logos/`. Use **Create Archive** in admin to capture logos alongside `tournament.db`.
 - **Port**: defaults to `3000`. On macOS/Linux, set `PORT=4000 npm start` to change. On Windows PowerShell, use `$env:PORT=4000; npm start`.
 - **Exact ties**: the server rejects identical lane times, so if a race is truly tied you should rerun it or enter a more precise measurement.
