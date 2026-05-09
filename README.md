@@ -10,25 +10,6 @@ This project was created by a teacher who has spent years running and supporting
 
 ## Screenshots
 
-The app media has been updated to use STEM Racing event, track, logo, and design-analysis imagery.
-
-| Launcher Media | Race Screen Media |
-|----------------|-------------------|
-| ![STEM Racing timing gate](public/assets/media/race-hero.jpg) | ![STEM Racing model cars on track](public/assets/media/race-alt.jpg) |
-
-| Design Analysis | Start-Line Prep |
-|-----------------|-----------------|
-| ![STEM Racing CFD design analysis](public/assets/media/workshop-build.jpg) | ![STEM Racing cars being prepared for launch](public/assets/media/workshop-action.jpg) |
-
-![Race Control dashboard](public/assets/screenshots/admin.png)
-
-| Race Screen | Live Leaderboard |
-|-------------|------------------|
-| ![Projector race screen showing the live result view](public/assets/screenshots/race-screen.png) | ![Live leaderboard with Pole Position and standings](public/assets/screenshots/leaderboard.png) |
-
-| Schedule View | Backup Console |
-|---------------|----------------|
-| ![Live schedule view with upcoming and completed races](public/assets/screenshots/schedule.png) | ![Backup console with auto/manual backup mode and local library](public/assets/screenshots/backups.png) |
 
 ## Highlights
 
