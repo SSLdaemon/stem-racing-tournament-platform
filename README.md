@@ -10,6 +10,25 @@ This project was created by a teacher who has spent years running and supporting
 
 ## Screenshots
 
+The app media has been updated to use STEM Racing event, track, logo, and design-analysis imagery.
+
+| Launcher Media | Race Screen Media |
+|----------------|-------------------|
+| ![STEM Racing timing gate](public/assets/media/race-hero.jpg) | ![STEM Racing model cars on track](public/assets/media/race-alt.jpg) |
+
+| Design Analysis | Start-Line Prep |
+|-----------------|-----------------|
+| ![STEM Racing CFD design analysis](public/assets/media/workshop-build.jpg) | ![STEM Racing cars being prepared for launch](public/assets/media/workshop-action.jpg) |
+
+![Race Control dashboard](public/assets/screenshots/admin.png)
+
+| Race Screen | Live Leaderboard |
+|-------------|------------------|
+| ![Projector race screen showing the live result view](public/assets/screenshots/race-screen.png) | ![Live leaderboard with Pole Position and standings](public/assets/screenshots/leaderboard.png)[...]
+
+| Schedule View | Backup Console |
+|---------------|----------------|
+| ![Live schedule view with upcoming and completed races](public/assets/screenshots/schedule.png) | ![Backup console with auto/manual backup mode and local library](public/assets/screenshots/backu[...]
 
 ## Highlights
 
@@ -78,7 +97,7 @@ npm install
 npm start
 ```
 
-Then open **http://localhost:3000** in your browser. The console will also show a LAN address like `http://192.168.x.x:3000` which you can open on other devices on the same Wi-Fi (phones, tablets,[...]
+Then open **http://localhost:3000** in your browser. The console will also show a LAN address like `http://192.168.x.x:3000` which you can open on other devices on the same Wi-Fi (phones, tablets[...]
 
 The race-control/admin and backup pages are open by default for quick one-day school events. Run it on a trusted event network, because anyone who can reach the server can operate the tournament.
 
@@ -96,7 +115,7 @@ This runs a fast schedule/bracket smoke test over multiple tournament sizes so r
 
 1. **Open `/admin`** on the operator laptop (the one running the server).
 2. **Register teams** — name, school, colour, logo (PNG / JPG, up to 4 MB).
-3. Click **Generate Schedule**. With 9–12 teams you get 2 groups; 13–16 teams you get 4 groups. Cross-group "bonus" matches are added automatically so every team reaches 5 matches. You can reg[...]
+3. Click **Generate Schedule**. With 9–12 teams you get 2 groups; 13–16 teams you get 4 groups. Cross-group "bonus" matches are added automatically so every team reaches 5 matches. You can re[...]
    - If you add or remove a team after generating the schedule, the schedule is cleared automatically so you can regenerate a clean bracket.
 4. Click **Start Tournament**.
 5. **On a second display** (or second browser window on your laptop), open `/race`. Drag it to the projector / big TV and press F11 for full-screen.
