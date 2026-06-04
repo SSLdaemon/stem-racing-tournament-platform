@@ -178,7 +178,7 @@
           <div class="versus ${introClass}">
             <div class="team left">
               <span class="logo xl" style="${F1.logoStyle(a)}"></span>
-              <div class="car-livery">${a ? F1Car.render({ color: a.color || '#00e6d2', flip: false }) : ''}</div>
+              <div class="car-livery">${a ? F1Car.render({ color: a.color || '#00e6d2', flip: true }) : ''}</div>
               <div class="name">${a ? escapeHtml(a.name) : 'TBD'}</div>
               <div class="school">${a ? escapeHtml(a.school || '') : ''}</div>
               ${m.completed && m.timeA != null ? `<div class="time">${F1.fmtTime(m.timeA)}</div>` : ''}
@@ -186,7 +186,7 @@
             <div class="vs">VS</div>
             <div class="team right">
               <span class="logo xl" style="${F1.logoStyle(b)}"></span>
-              <div class="car-livery">${b ? F1Car.render({ color: b.color || '#ff2e92', flip: true }) : ''}</div>
+              <div class="car-livery">${b ? F1Car.render({ color: b.color || '#ff2e92', flip: false }) : ''}</div>
               <div class="name">${b ? escapeHtml(b.name) : 'TBD'}</div>
               <div class="school">${b ? escapeHtml(b.school || '') : ''}</div>
               ${m.completed && m.timeB != null ? `<div class="time">${F1.fmtTime(m.timeB)}</div>` : ''}
@@ -259,11 +259,11 @@
             <div class="finish-line"></div>
             <div class="lane lane-a">
               <span class="lbl">Lane A · ${a ? escapeHtml(a.name) : ''}</span>
-              <div class="car" id="pfCarA" style="left: 0;">${a ? F1Car.render({ color: a.color || '#00e6d2' }) : ''}</div>
+              <div class="car" id="pfCarA" style="left: 0;">${a ? F1Car.render({ color: a.color || '#00e6d2', flip: true }) : ''}</div>
             </div>
             <div class="lane lane-b">
               <span class="lbl">Lane B · ${b ? escapeHtml(b.name) : ''}</span>
-              <div class="car" id="pfCarB" style="left: 0;">${b ? F1Car.render({ color: b.color || '#ff2e92' }) : ''}</div>
+              <div class="car" id="pfCarB" style="left: 0;">${b ? F1Car.render({ color: b.color || '#ff2e92', flip: true }) : ''}</div>
             </div>
           </div>
 

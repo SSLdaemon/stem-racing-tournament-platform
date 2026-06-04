@@ -4,8 +4,8 @@
  *
  * Usage:  container.innerHTML = F1Car.render({ color: '#00e6d2', flip: false });
  *
- * The car is drawn in a 600x200 viewBox facing right.
- * `flip: true` mirrors it horizontally so two cars can face each other.
+ * The car is drawn in a 600x200 viewBox facing left.
+ * `flip: true` mirrors it horizontally so it faces right.
  */
 
 window.F1Car = (function () {

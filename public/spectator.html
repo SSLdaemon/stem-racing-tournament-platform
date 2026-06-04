@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spectator Screens - STEM Racing</title>
+<link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+<div class="ambient-grid"></div>
+
+<main class="launcher spectator-launcher">
+  <div class="hero">
+    <img class="launcher-logo" src="/assets/media/stem-racing-logo-dark.png" alt="STEM Racing" />
+    <h1 id="hero-title">Spectator Screens</h1>
+    <div class="sub" id="event-state">Live Event</div>
+  </div>
+
+  <div class="panels spectator-panels">
+    <a class="panel" href="/leaderboard?spectator=1">
+      <div class="icon">01</div>
+      <h2>Leaderboard</h2>
+      <p>Standings, points, wins, fastest lap.</p>
+    </a>
+    <a class="panel" href="/schedule?spectator=1">
+      <div class="icon">02</div>
+      <h2>Schedule</h2>
+      <p>Upcoming races and recent results.</p>
+    </a>
+  </div>
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+  F1.onState(s => {
+    document.getElementById('hero-title').textContent = s.tournamentName || 'Spectator Screens';
+    document.getElementById('event-state').textContent = s.state === 'running'
+      ? 'Tournament Live'
+      : s.state === 'finished'
+        ? 'Tournament Complete'
+        : 'Awaiting Start';
+  });
+</script>
+</body>
+</html>

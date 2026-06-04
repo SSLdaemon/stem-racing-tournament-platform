@@ -35,11 +35,12 @@ This project was created by a teacher who has spent years running and supporting
 - **Team registration** with logo upload, school name, and team colour.
 - **Automatic schedule generation** using a World Cup-style format adapted for school racing events.
 - **Head-to-head scoring** with 3 points for a win and 1 point for a loss.
-- **Seven live display windows** that stay in sync:
+- **Seven live display/control windows** that stay in sync, plus a spectator menu for public devices:
   - `/admin` — race control for the event operator.
   - `/race` — big TV / projector screen with the five-light start sequence and versus intro.
   - `/leaderboard` — live standings with the Pole Position fastest-lap award.
-  - `/schedule` — upcoming matches plus a QR code for spectators.
+  - `/schedule` — upcoming matches plus a QR code for spectator screens.
+  - `/spectator` — public menu with only leaderboard and schedule options.
   - `/bracket` — live knockout bracket.
   - `/overlay` — transparent OBS browser source for live streaming.
   - `/backups` — backup, restore, auto/manual backup mode, and local backup library.
@@ -88,9 +89,9 @@ npm install
 npm start
 ```
 
-Then open **http://localhost:3000** in your browser. The console will also show a LAN address like `http://192.168.x.x:3000` which you can open on other devices on the same Wi-Fi (phones, tablets[...]
+Then open **http://localhost:3000** in your browser. The console will also show a spectator LAN address like `http://192.168.x.x:3000/spectator`, which you can open on other devices on the same Wi-Fi.
 
-The race-control/admin and backup pages are open by default for quick one-day school events. Run it on a trusted event network, because anyone who can reach the server can operate the tournament.
+Admin, backup, export, and race-control actions are local-only by default: use them from `localhost` on the organiser laptop. Devices on the same Wi-Fi are redirected to spectator screens and can only view the leaderboard or schedule.
 
 If you switch Node.js versions and see a native module mismatch, `npm start` now auto-rebuilds `better-sqlite3` before launching.
 
@@ -110,7 +111,7 @@ This runs a fast schedule/bracket smoke test over multiple tournament sizes so r
    - If you add or remove a team after generating the schedule, the schedule is cleared automatically so you can regenerate a clean bracket.
 4. Click **Start Tournament**.
 5. **On a second display** (or second browser window on your laptop), open `/race`. Drag it to the projector / big TV and press F11 for full-screen.
-6. On another screen / tablet, open `/leaderboard` and `/schedule`.
+6. On spectator phones/tablets, scan the QR code on `/schedule` or open the LAN `/spectator` link shown in the console. Spectators can choose only the leaderboard or schedule.
 7. For each race:
    - Click **Show Versus Intro** → big team-vs-team animation on the race screen.
    - When both cars are on the line, click **Run Start Lights** → F1 5-light countdown with a random release.

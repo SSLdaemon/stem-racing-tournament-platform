@@ -32,11 +32,11 @@
     </section>
 
     <section class="card" style="text-align: center;">
-      <div class="section-title" style="justify-content: center;">Spectator Leaderboard</div>
+      <div class="section-title" style="justify-content: center;">Spectator Screens</div>
       <p class="muted small" style="margin-bottom: 14px;">Scan on your phone</p>
       <div class="qr-box" style="margin: 0 auto;">
-        <img id="qrImg" alt="QR code to leaderboard" />
-        <div class="hint">live standings</div>
+        <img id="qrImg" alt="QR code to spectator screens" />
+        <div class="hint">leaderboard or schedule</div>
       </div>
       <p class="muted small mt-2 mono" id="serverUrl"></p>
     </section>
@@ -75,8 +75,8 @@ function render(s) {
   else comp.innerHTML = completed.map(m => renderRow(m, byId, null)).join('');
 
   const qr = document.getElementById('qrImg');
-  qr.src = '/api/qr?target=' + encodeURIComponent((s.serverUrl || '') + '/leaderboard');
-  document.getElementById('serverUrl').textContent = (s.serverUrl || '') + '/leaderboard';
+  qr.src = '/api/qr?target=' + encodeURIComponent((s.serverUrl || '') + '/spectator');
+  document.getElementById('serverUrl').textContent = (s.serverUrl || '') + '/spectator';
 }
 
 function renderRow(m, byId, current) {

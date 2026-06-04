@@ -29,6 +29,7 @@ const {
 const { csvCell: csv } = require('./src/export');
 
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 const app = express();
 app.disable('x-powered-by');
 const server = http.createServer(app);
@@ -61,8 +62,77 @@ const backupUpload = multer({
 app.use(securityHeaders);
 app.use(noStoreSensitiveResponses);
 app.use(express.json());
+app.use(restrictNetworkAccess);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/logos', express.static(LOGO_DIR));
+
+function restrictNetworkAccess(req, res, next) {
+  const local = isLocalRequest(req);
+
+  if (!local) {
+    const spectatorRedirect = spectatorRedirectPath(req);
+    if (spectatorRedirect) return res.redirect(spectatorRedirect);
+  }
+
+  if (local || !isRestrictedNetworkRequest(req)) return next();
+
+  if (req.path.startsWith('/api/')) {
+    return res.status(403).json({
+      error: 'This control area is only available on the organiser laptop.',
+    });
+  }
+
+  return res.status(403).send(`
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Organiser Access Only</title>
+      <link rel="stylesheet" href="/assets/styles.css" />
+    </head>
+    <body>
+      <main class="wrap" style="min-height: 100vh; display: grid; place-items: center;">
+        <section class="card" style="max-width: 620px;">
+          <h1>Organiser Access Only</h1>
+          <p class="muted">Admin and backup tools are only available from this laptop.</p>
+          <p class="muted">Spectator screens are available at <a href="/spectator">/spectator</a>.</p>
+        </section>
+      </main>
+    </body>
+    </html>
+  `);
+}
+
+function spectatorRedirectPath(req) {
+  if (req.path === '/' || req.path === '/index.html') return '/spectator';
+  if ((req.path === '/leaderboard' || req.path === '/leaderboard.html') && !('spectator' in req.query)) {
+    return '/leaderboard?spectator=1';
+  }
+  if ((req.path === '/schedule' || req.path === '/schedule.html') && !('spectator' in req.query)) {
+    return '/schedule?spectator=1';
+  }
+  return null;
+}
+
+function isRestrictedNetworkRequest(req) {
+  if (req.path === '/admin' || req.path === '/admin.html') return true;
+  if (req.path === '/backups' || req.path === '/backups.html') return true;
+  if (req.path.startsWith('/api/backups')) return true;
+  if (req.path.startsWith('/api/export')) return true;
+  if (req.path === '/api/archive') return true;
+  if (req.path.startsWith('/api/') && req.method !== 'GET') return true;
+  return false;
+}
+
+function isLocalRequest(req) {
+  const address = normalizeRemoteAddress(req.socket?.remoteAddress || req.ip || '');
+  return address === '::1' || address === '127.0.0.1' || address.startsWith('127.');
+}
+
+function normalizeRemoteAddress(address) {
+  return String(address || '').replace(/^::ffff:/, '');
+}
 
 function discardUploadedFile(file) {
   if (!file?.path) return;
@@ -207,15 +277,35 @@ function buildState() {
 }
 
 function serverBaseUrl() {
+  return serverBaseUrls()[0] || `http://localhost:${PORT}`;
+}
+
+function serverBaseUrls() {
+  return networkAddresses().map(ip => `http://${ip}:${PORT}`);
+}
+
+function networkAddresses() {
   const nets = os.networkInterfaces();
-  let ip = 'localhost';
-  for (const name of Object.keys(nets)) {
-    for (const ni of nets[name] || []) {
-      if (ni.family === 'IPv4' && !ni.internal) { ip = ni.address; break; }
+  const addresses = [];
+  for (const interfaces of Object.values(nets)) {
+    for (const ni of interfaces || []) {
+      if (ni.family === 'IPv4' && !ni.internal && isUsableNetworkAddress(ni.address)) {
+        addresses.push(ni.address);
+      }
     }
-    if (ip !== 'localhost') break;
   }
-  return `http://${ip}:${PORT}`;
+  return [...new Set(addresses)].sort((a, b) => addressPriority(a) - addressPriority(b));
+}
+
+function isUsableNetworkAddress(address) {
+  return address && !address.startsWith('169.254.') && address !== '0.0.0.0';
+}
+
+function addressPriority(address) {
+  if (/^192\.168\./.test(address)) return 0;
+  if (/^10\./.test(address)) return 1;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(address)) return 2;
+  return 3;
 }
 
 function broadcast() {
@@ -296,10 +386,18 @@ function rollbackBracket(matchIdThatWasUndone) {
   }
 }
 
-const pages = ['index', 'admin', 'backups', 'race', 'leaderboard', 'schedule', 'bracket', 'overlay'];
+const pages = ['index', 'admin', 'backups', 'race', 'leaderboard', 'schedule', 'bracket', 'overlay', 'spectator'];
 for (const p of pages) {
   const route = p === 'index' ? '/' : '/' + p;
-  app.get(route, (_req, res) => res.sendFile(path.join(__dirname, 'public', p + '.html')));
+  app.get(route, (req, res) => {
+    if (!isLocalRequest(req)) {
+      if (p === 'index') return res.redirect('/spectator');
+      if ((p === 'leaderboard' || p === 'schedule') && !('spectator' in req.query)) {
+        return res.redirect(route + '?spectator=1');
+      }
+    }
+    return res.sendFile(path.join(__dirname, 'public', p + '.html'));
+  });
 }
 
 app.get('/api/state', (_req, res) => res.json(buildState()));
@@ -741,7 +839,7 @@ app.get('/api/export/:format', (req, res) => {
 });
 
 app.get('/api/qr', async (req, res) => {
-  const target = (req.query.target) || (serverBaseUrl() + '/leaderboard');
+  const target = safeQrTarget(req.query.target);
   try {
     const png = await QRCode.toBuffer(target, {
       width: 512,
@@ -754,6 +852,25 @@ app.get('/api/qr', async (req, res) => {
     res.status(500).send(err.message);
   }
 });
+
+function safeQrTarget(rawTarget) {
+  const fallback = serverBaseUrl() + '/spectator';
+  const allowedPaths = new Set(['/spectator', '/leaderboard', '/schedule']);
+  const allowedHosts = new Set([
+    `localhost:${PORT}`,
+    `127.0.0.1:${PORT}`,
+    ...networkAddresses().map(ip => `${ip}:${PORT}`),
+  ]);
+
+  try {
+    const target = new URL(String(rawTarget || fallback), fallback);
+    if (!allowedHosts.has(target.host)) return fallback;
+    if (!allowedPaths.has(target.pathname.replace(/\/$/, '') || '/')) return fallback;
+    return target.toString();
+  } catch {
+    return fallback;
+  }
+}
 
 app.use((err, _req, res, _next) => {
   if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
@@ -773,21 +890,22 @@ io.on('connection', (socket) => {
   socket.emit('state', buildState());
 });
 
-server.listen(PORT, () => {
-  const url = serverBaseUrl();
+server.listen(PORT, HOST, () => {
+  const urls = serverBaseUrls();
+  const url = urls[0] || `http://localhost:${PORT}`;
   console.log('');
   console.log('  F1 in Schools Tournament Platform');
   console.log('  ==================================');
   console.log('  Open on this laptop:  http://localhost:' + PORT);
-  console.log('  Open on the network:  ' + url);
+  console.log('  Spectator network:    ' + (urls.length ? urls.map(u => u + '/spectator').join(', ') : 'no LAN IPv4 address detected'));
+  console.log('  Listening on:         ' + HOST + ':' + PORT);
   console.log('');
-  console.log('  Admin panel:          ' + url + '/admin');
-  console.log('  Backups:              ' + url + '/backups');
-  console.log('  Race screen:          ' + url + '/race');
-  console.log('  Leaderboard:          ' + url + '/leaderboard');
-  console.log('  Schedule:             ' + url + '/schedule');
-  console.log('  Bracket:              ' + url + '/bracket');
-  console.log('  OBS Overlay:          ' + url + '/overlay');
+  console.log('  Admin panel:          http://localhost:' + PORT + '/admin');
+  console.log('  Backups:              http://localhost:' + PORT + '/backups');
+  console.log('  Race screen:          http://localhost:' + PORT + '/race');
+  console.log('  Leaderboard:          http://localhost:' + PORT + '/leaderboard');
+  console.log('  Schedule:             http://localhost:' + PORT + '/schedule');
+  console.log('  Spectator menu:       ' + url + '/spectator');
   console.log('');
   backup.start();
 });

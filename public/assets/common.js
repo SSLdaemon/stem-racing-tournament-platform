@@ -143,7 +143,11 @@ window.F1 = (function () {
   }
 
   function topbar(pageId) {
-    const links = [
+    const spectatorMode = new URLSearchParams(window.location.search).has('spectator');
+    const links = spectatorMode ? [
+      ['/leaderboard?spectator=1', 'Leaderboard', 'leaderboard'],
+      ['/schedule?spectator=1', 'Schedule', 'schedule'],
+    ] : [
       ['/', 'Home', 'home'],
       ['/admin', 'Admin', 'admin'],
       ['/backups', 'Backups', 'backups'],
@@ -161,7 +165,7 @@ window.F1 = (function () {
         <div class="brand">
           <img class="brand-logo" src="/assets/media/stem-racing-logo-dark.png" alt="STEM Racing" />
           <span class="brand-copy">
-            <span class="brand-kicker">Race Control</span>
+            <span class="brand-kicker">${spectatorMode ? 'Spectator' : 'Race Control'}</span>
             <span id="brandName">Tournament Platform</span>
           </span>
           <span class="live-dot" title="Live"></span>

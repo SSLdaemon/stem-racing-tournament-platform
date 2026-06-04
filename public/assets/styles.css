@@ -569,6 +569,13 @@ table.data tr.current td:first-child { border-left: 3px solid var(--teal); paddi
   background: linear-gradient(90deg, var(--teal), var(--magenta));
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
+.spectator-launcher .hero {
+  margin-bottom: 28px;
+}
+.spectator-panels {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  width: min(760px, 100%);
+}
 
 /* ---------- media-backed event skin ---------- */
 .media-head,
