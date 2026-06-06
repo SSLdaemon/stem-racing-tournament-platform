@@ -7,6 +7,7 @@ const AdmZip = require('adm-zip');
 const Database = require('better-sqlite3');
 const tournament = require('../src/tournament');
 const security = require('../src/security');
+const networkAccess = require('../src/networkAccess');
 const { csvCell } = require('../src/export');
 const portableBackup = require('../src/portableBackup');
 const backupScheduler = require('../src/backup');
@@ -112,6 +113,31 @@ assert.equal(tournament.buildKnockoutBracket(standings8, completed8.length + 1).
 
 assert.equal(security.requireAdmin, undefined, 'admin pages should not require a password in school-event mode');
 assert.equal(security.isAuthorizedBasic, undefined, 'Basic auth should not be part of school-event mode');
+const remoteRequest = (requestPath, { method = 'GET', query = {}, remoteAddress = '192.168.1.40' } = {}) => ({
+  path: requestPath,
+  method,
+  query,
+  socket: { remoteAddress },
+  ip: remoteAddress,
+});
+assert.equal(networkAccess.isLocalRequest(remoteRequest('/admin', { remoteAddress: '127.0.0.1' })), true,
+  'loopback requests should be treated as local organiser access');
+assert.equal(networkAccess.spectatorRedirectPath(remoteRequest('/')), '/spectator',
+  'remote root requests should redirect to the spectator menu');
+assert.equal(networkAccess.spectatorRedirectPath(remoteRequest('/leaderboard')), '/leaderboard?spectator=1',
+  'remote leaderboard requests should be forced into spectator mode');
+assert.equal(networkAccess.spectatorRedirectPath(remoteRequest('/leaderboard', { query: { spectator: '1' } })), null,
+  'remote spectator leaderboard requests should not redirect repeatedly');
+for (const page of ['/admin', '/backups', '/race', '/bracket', '/overlay']) {
+  assert.equal(networkAccess.isRestrictedNetworkRequest(remoteRequest(page)), true,
+    `remote clients should not be allowed to open ${page}`);
+}
+assert.equal(networkAccess.isRestrictedNetworkRequest(remoteRequest('/api/state')), false,
+  'remote spectator screens should be allowed to read live state');
+assert.equal(networkAccess.isRestrictedNetworkRequest(remoteRequest('/api/race/mode', { method: 'POST' })), true,
+  'remote clients should not be allowed to mutate race mode');
+assert.equal(networkAccess.isRestrictedNetworkRequest(remoteRequest('/api/export/csv')), true,
+  'remote clients should not be allowed to export tournament data');
 assert.equal(
   security.detectImageKind(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
   'png',

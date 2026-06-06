@@ -26,6 +26,11 @@ const {
   logoFileFilter,
   detectImageKind,
 } = require('./src/security');
+const {
+  isLocalRequest,
+  isRestrictedNetworkRequest,
+  spectatorRedirectPath,
+} = require('./src/networkAccess');
 const { csvCell: csv } = require('./src/export');
 
 const PORT = process.env.PORT || 3000;
@@ -102,36 +107,6 @@ function restrictNetworkAccess(req, res, next) {
     </body>
     </html>
   `);
-}
-
-function spectatorRedirectPath(req) {
-  if (req.path === '/' || req.path === '/index.html') return '/spectator';
-  if ((req.path === '/leaderboard' || req.path === '/leaderboard.html') && !('spectator' in req.query)) {
-    return '/leaderboard?spectator=1';
-  }
-  if ((req.path === '/schedule' || req.path === '/schedule.html') && !('spectator' in req.query)) {
-    return '/schedule?spectator=1';
-  }
-  return null;
-}
-
-function isRestrictedNetworkRequest(req) {
-  if (req.path === '/admin' || req.path === '/admin.html') return true;
-  if (req.path === '/backups' || req.path === '/backups.html') return true;
-  if (req.path.startsWith('/api/backups')) return true;
-  if (req.path.startsWith('/api/export')) return true;
-  if (req.path === '/api/archive') return true;
-  if (req.path.startsWith('/api/') && req.method !== 'GET') return true;
-  return false;
-}
-
-function isLocalRequest(req) {
-  const address = normalizeRemoteAddress(req.socket?.remoteAddress || req.ip || '');
-  return address === '::1' || address === '127.0.0.1' || address.startsWith('127.');
-}
-
-function normalizeRemoteAddress(address) {
-  return String(address || '').replace(/^::ffff:/, '');
 }
 
 function discardUploadedFile(file) {
