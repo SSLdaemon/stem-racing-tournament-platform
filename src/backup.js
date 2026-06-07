@@ -21,17 +21,37 @@ if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
 async function backupOnce() {
   if (!fs.existsSync(DB_PATH)) return null;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const target = path.join(BACKUP_DIR, `tournament-${stamp}.db`);
-  await db.backup(target);
-  // prune oldest
-  const files = fs.readdirSync(BACKUP_DIR)
-    .filter(f => f.endsWith('.db'))
-    .map(f => ({ f, t: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs }))
+  const targetDir = path.join(BACKUP_DIR, `backup-${stamp}`);
+  fs.mkdirSync(targetDir, { recursive: true });
+  await db.backup(path.join(targetDir, 'tournament.db'));
+  copyDir(LOGO_DIR, path.join(targetDir, 'logos'));
+  fs.writeFileSync(
+    path.join(targetDir, 'manifest.json'),
+    JSON.stringify({
+      createdAt: new Date().toISOString(),
+      database: 'tournament.db',
+      kind: 'local',
+      sections: { logos: true },
+    }, null, 2)
+  );
+  pruneLocalBackups();
+  return targetDir;
+}
+
+function pruneLocalBackups() {
+  const items = fs.readdirSync(BACKUP_DIR, { withFileTypes: true })
+    .filter(entry => (
+      (entry.isFile() && entry.name.endsWith('.db'))
+      || (entry.isDirectory() && entry.name.startsWith('backup-'))
+    ))
+    .map(entry => {
+      const fullPath = path.join(BACKUP_DIR, entry.name);
+      return { name: entry.name, fullPath, t: fs.statSync(fullPath).mtimeMs };
+    })
     .sort((a, b) => b.t - a.t);
-  for (const extra of files.slice(KEEP)) {
-    fs.unlinkSync(path.join(BACKUP_DIR, extra.f));
+  for (const extra of items.slice(KEEP)) {
+    fs.rmSync(extra.fullPath, { recursive: true, force: true });
   }
-  return target;
 }
 
 async function safeBackupOnce() {

@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Event Live Rotation - STEM Racing</title>
+<link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body class="rotation-body">
+<div class="ambient-grid"></div>
+
+<main class="rotation-display" id="rotationRoot">
+  <header class="rotation-header">
+    <div>
+      <div class="media-eyebrow">Event Live Rotation</div>
+      <h1 id="rotationTitle">STEM Racing Championship</h1>
+    </div>
+    <div class="rotation-progress">
+      <div class="rotation-count" id="rotationCount">0 / 0</div>
+      <div class="rotation-dots" id="rotationDots"></div>
+    </div>
+  </header>
+
+  <section class="rotation-slide" id="rotationSlide">
+    <div class="rotation-empty">Waiting for live state...</div>
+  </section>
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/common.js"></script>
+<script>
+(() => {
+  const slides = ['next', 'schedule', 'standings'];
+  const slideNames = { next: 'Now Up', schedule: 'Schedule', standings: 'Standings' };
+  let currentIndex = 0;
+  let latestState = null;
+
+  const title = document.getElementById('rotationTitle');
+  const count = document.getElementById('rotationCount');
+  const dots = document.getElementById('rotationDots');
+  const slide = document.getElementById('rotationSlide');
+
+  const timer = setInterval(() => advance(), 12000);
+  window.addEventListener('beforeunload', () => clearInterval(timer));
+  document.addEventListener('click', () => advance());
+  document.addEventListener('keydown', (event) => {
+    if (['ArrowRight', ' ', 'Enter', 'PageDown'].includes(event.key)) advance();
+    if (['ArrowLeft', 'PageUp'].includes(event.key)) advance(-1);
+  });
+
+  F1.onState((state) => {
+    latestState = state;
+    render();
+  });
+
+  function advance(step = 1) {
+    currentIndex = (currentIndex + step + slides.length) % slides.length;
+    render();
+  }
+
+  function render() {
+    if (!latestState) return;
+    const state = latestState;
+    const completed = state.matches.filter(match => match.completed).length;
+    title.textContent = state.tournamentName || 'STEM Racing Championship';
+    count.textContent = `${completed} / ${state.matches.length}`;
+    dots.innerHTML = slides.map((name, index) =>
+      `<span class="${index === currentIndex ? 'active' : ''}">${slideNames[name]}</span>`
+    ).join('');
+
+    const teamsById = new Map(state.teams.map(team => [team.id, team]));
+    const mode = slides[currentIndex];
+    if (mode === 'next') renderNext(state, teamsById);
+    else if (mode === 'schedule') renderSchedule(state, teamsById);
+    else renderStandings(state);
+  }
+
+  function renderNext(state, teamsById) {
+    const match = state.currentMatch || state.nextMatch || state.matches.find(item => !item.completed);
+    const upcoming = state.matches.filter(item => !item.completed).slice(0, 4);
+    if (!match) {
+      slide.innerHTML = `
+        <div class="rotation-empty">
+          <div class="rotation-kicker">Tournament Complete</div>
+          <strong>${escapeHtml(state.overallStandings?.[0]?.name || 'Awaiting champion')}</strong>
+        </div>`;
+      return;
+    }
+    const teamA = teamsById.get(match.teamAId);
+    const teamB = teamsById.get(match.teamBId);
+    slide.innerHTML = `
+      <div class="rotation-now">
+        <div class="rotation-kicker">${match.completed ? 'Latest Result' : 'Now Up'} · Match ${match.matchNumber} · ${matchLabel(match)}</div>
+        <div class="rotation-versus">
+          ${teamBlock(teamA, match.timeA, match.winnerTeamId === match.teamAId)}
+          <div class="rotation-vs">VS</div>
+          ${teamBlock(teamB, match.timeB, match.winnerTeamId === match.teamBId)}
+        </div>
+      </div>
+      <div class="rotation-queue">
+        <h2>Upcoming</h2>
+        ${upcoming.map(item => compactMatch(item, teamsById)).join('') || '<p class="muted">No upcoming matches.</p>'}
+      </div>`;
+  }
+
+  function renderSchedule(state, teamsById) {
+    const upcoming = state.matches.filter(match => !match.completed).slice(0, 9);
+    const recent = state.matches.filter(match => match.completed).slice(-3).reverse();
+    slide.innerHTML = `
+      <div class="rotation-panel wide">
+        <div class="rotation-kicker">Race Programme</div>
+        <h2>Upcoming Matches</h2>
+        <div class="rotation-list">
+          ${upcoming.map(item => compactMatch(item, teamsById)).join('') || '<p class="muted">No upcoming matches.</p>'}
+        </div>
+      </div>
+      <div class="rotation-panel">
+        <div class="rotation-kicker">Recent Results</div>
+        <div class="rotation-list compact">
+          ${recent.map(item => compactMatch(item, teamsById)).join('') || '<p class="muted">No results yet.</p>'}
+        </div>
+      </div>`;
+  }
+
+  function renderStandings(state) {
+    const top = (state.overallStandings || []).slice(0, 8);
+    slide.innerHTML = `
+      <div class="rotation-panel wide">
+        <div class="rotation-kicker">Live Leaderboard</div>
+        <h2>Top Standings</h2>
+        <table class="rotation-standings">
+          <tbody>
+            ${top.map((row, index) => `
+              <tr>
+                <td class="rank">P${index + 1}</td>
+                <td><span class="logo" style="${F1.logoStyle(row)}"></span></td>
+                <td><strong>${escapeHtml(row.name)}</strong><span>${escapeHtml(row.school || '')}</span></td>
+                <td>${row.played}<span>Races</span></td>
+                <td>${row.wins}<span>Wins</span></td>
+                <td class="points">${row.points}<span>Pts</span></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="rotation-panel pole-mini">
+        <div class="rotation-kicker">Pole Position</div>
+        ${state.polePosition ? `
+          <strong>${escapeHtml(state.polePosition.team?.name || '')}</strong>
+          <span class="mono">${F1.fmtTime(state.polePosition.time)}</span>
+          <small>Match ${state.polePosition.matchNumber}</small>
+        ` : '<p class="muted">Waiting for first timed race.</p>'}
+      </div>`;
+  }
+
+  function teamBlock(team, time, winner) {
+    return `
+      <div class="rotation-team ${winner ? 'winner' : ''}">
+        <span class="logo xl" style="${F1.logoStyle(team)}"></span>
+        <strong>${escapeHtml(team?.name || 'TBD')}</strong>
+        <span>${escapeHtml(team?.school || '')}</span>
+        <em class="mono">${F1.fmtTime(time)}</em>
+      </div>`;
+  }
+
+  function compactMatch(match, teamsById) {
+    const teamA = teamsById.get(match.teamAId);
+    const teamB = teamsById.get(match.teamBId);
+    return `
+      <div class="rotation-match ${match.completed ? 'completed' : ''}">
+        <span class="mono">#${match.matchNumber}</span>
+        <span>${matchLabel(match)}</span>
+        <strong>${escapeHtml(teamA?.name || 'TBD')}</strong>
+        <em>vs</em>
+        <strong>${escapeHtml(teamB?.name || 'TBD')}</strong>
+        <span class="mono">${match.completed ? `${F1.fmtTime(match.timeA)} / ${F1.fmtTime(match.timeB)}` : ''}</span>
+      </div>`;
+  }
+
+  function matchLabel(match) {
+    if (match.stage === 'knockout') return match.round + (match.bracketSlot ? ' · ' + match.bracketSlot : '');
+    if (match.bonus) return 'Cross-group';
+    if (match.groupIndex != null && match.groupIndex >= 0) return 'Group ' + String.fromCharCode(65 + match.groupIndex);
+    return 'Group';
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  }
+})();
+</script>
+</body>
+</html>

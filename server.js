@@ -20,6 +20,7 @@ const {
 const tournament = require('./src/tournament');
 const backup = require('./src/backup');
 const portableBackup = require('./src/portableBackup');
+const corrections = require('./src/matchCorrections');
 const {
   securityHeaders,
   noStoreSensitiveResponses,
@@ -136,6 +137,7 @@ function clearScheduleState() {
   setConfig('current_match_number', null);
   setConfig('last_completed_match_number', null);
   setConfig('race_screen_mode', 'idle');
+  setConfig('schedule_summary', null);
 }
 
 function normalizeText(value, { field, max = 120, required = false } = {}) {
@@ -192,6 +194,7 @@ function buildState() {
   const matches = listMatches();
   const groupMap = getGroupAssignments();
   const tournamentName = getConfig('tournament_name');
+  const formatOptions = getTournamentFormatOptions();
   const state = getConfig('tournament_state');
   const currentMatchNumber = getConfig('current_match_number');
   const lastCompletedMatchNumber = getConfig('last_completed_match_number');
@@ -240,15 +243,28 @@ function buildState() {
 
   const bracketMatches = matches.filter(m => m.stage === 'knockout');
 
+  const savedSummary = getConfig('schedule_summary');
+  const scheduleSummary = savedSummary || tournament.summarizeExistingSchedule({
+    teamCount: teams.length,
+    groups: groups.filter(Boolean),
+    matches,
+    options: formatOptions,
+  });
+
   return {
     tournamentName, state, teams, matches,
     groups: groups.filter(Boolean),
     groupStandings, overallStandings, polePosition,
     currentMatch, nextMatch, queuedMatch: playableQueuedMatch, bracketMatches,
+    formatOptions, scheduleSummary,
     raceScreenMode,
     serverUrl: serverBaseUrl(),
     generatedAt: Date.now(),
   };
+}
+
+function getTournamentFormatOptions() {
+  return tournament.normalizeScheduleOptions(getConfig('tournament_format_options'));
 }
 
 function serverBaseUrl() {
@@ -291,33 +307,37 @@ function recordHistory(action, payload) {
   q.insertHistory.run(action, JSON.stringify(payload));
 }
 
-function maybeBuildKnockout() {
-  const matches = listMatches();
-  if (matches.some(m => m.stage === 'knockout')) return false;
-  const groupMatches = matches.filter(m => m.stage === 'group');
-  if (groupMatches.length === 0) return false;
-  if (groupMatches.some(m => !m.completed)) return false;
+function insertGeneratedMatches(matches) {
+  for (const m of matches) {
+    q.insertMatch.run(
+      m.matchNumber, m.stage, String(m.round),
+      m.groupIndex ?? null,
+      m.bracketSlot ?? null,
+      m.dependsOn ? JSON.stringify(m.dependsOn) : null,
+      m.bonus ? 1 : 0,
+      m.teamAId ?? null, m.teamBId ?? null
+    );
+  }
+}
 
+function buildKnockoutFromCurrentStandings() {
+  if (getTournamentFormatOptions().format === tournament.FORMAT_LEAGUE_ONLY) return 0;
+  const matches = listMatches();
+  const groupMatches = matches.filter(m => m.stage === 'group');
+  if (groupMatches.length === 0 || groupMatches.some(m => !m.completed)) return 0;
   const teams = listTeams();
   const groupMap = getGroupAssignments();
   const standings = tournament.computeGroupStandings(teams, matches, groupMap);
-  const startNum = Math.max(...matches.map(m => m.matchNumber)) + 1;
+  const startNum = Math.max(...groupMatches.map(m => m.matchNumber)) + 1;
   const bracket = tournament.buildKnockoutBracket(standings, startNum);
-  if (bracket.length === 0) return false;
-  const tx = db.transaction(() => {
-    for (const m of bracket) {
-      q.insertMatch.run(
-        m.matchNumber, m.stage, String(m.round),
-        m.groupIndex ?? null,
-        m.bracketSlot ?? null,
-        m.dependsOn ? JSON.stringify(m.dependsOn) : null,
-        0,
-        m.teamAId ?? null, m.teamBId ?? null
-      );
-    }
-  });
-  tx();
-  return true;
+  insertGeneratedMatches(bracket);
+  return bracket.length;
+}
+
+function maybeBuildKnockout() {
+  const matches = listMatches();
+  if (matches.some(m => m.stage === 'knockout')) return false;
+  return buildKnockoutFromCurrentStandings() > 0;
 }
 
 function advanceBracket() {
@@ -361,7 +381,38 @@ function rollbackBracket(matchIdThatWasUndone) {
   }
 }
 
-const pages = ['index', 'admin', 'backups', 'race', 'leaderboard', 'schedule', 'bracket', 'overlay', 'spectator'];
+function refreshProgressAfterResult(fallbackMatchNumber = null) {
+  const next = q.nextIncompleteMatch.get();
+  if (next) {
+    setConfig('current_match_number', next.match_number);
+    setConfig('race_screen_mode', 'result');
+    return;
+  }
+
+  const remaining = listMatches().filter(m => !m.completed);
+  if (remaining.length === 0) {
+    setConfig('current_match_number', fallbackMatchNumber);
+    setConfig('tournament_state', 'finished');
+    setConfig('race_screen_mode', 'finished');
+  } else {
+    setConfig('current_match_number', fallbackMatchNumber);
+    setConfig('race_screen_mode', 'result');
+  }
+}
+
+function rebuildKnockoutAfterGroupChange() {
+  q.deleteKnockoutMatches.run();
+  buildKnockoutFromCurrentStandings();
+}
+
+function clearDownstreamKnockoutMatches(affectedMatches) {
+  for (const affected of affectedMatches) {
+    q.clearMatchResult.run(affected.id);
+    q.updateMatchTeams.run(null, null, affected.id);
+  }
+}
+
+const pages = ['index', 'admin', 'backups', 'race', 'leaderboard', 'schedule', 'rotation', 'bracket', 'overlay', 'spectator'];
 for (const p of pages) {
   const route = p === 'index' ? '/' : '/' + p;
   app.get(route, (req, res) => {
@@ -459,24 +510,17 @@ app.post('/api/schedule/generate', (_req, res) => {
   const teams = listTeams();
   if (teams.length < 4) return res.status(400).json({ error: 'Need at least 4 teams.' });
   try {
-    const plan = tournament.generateSchedule(teams.map(t => t.id));
+    const plan = tournament.generateSchedule(teams.map(t => t.id), getTournamentFormatOptions());
     const tx = db.transaction(() => {
       clearScheduleState();
       plan.groups.forEach((g, gi) => g.forEach(tid => q.insertAssignment.run(tid, gi)));
-      for (const m of plan.matches) {
-        q.insertMatch.run(
-          m.matchNumber, m.stage, String(m.round),
-          m.groupIndex ?? null,
-          m.bracketSlot ?? null,
-          m.dependsOn ? JSON.stringify(m.dependsOn) : null,
-          m.bonus ? 1 : 0,
-          m.teamAId ?? null, m.teamBId ?? null
-        );
-      }
+      insertGeneratedMatches(plan.matches);
+      setConfig('tournament_format_options', plan.options);
+      setConfig('schedule_summary', plan.summary);
     });
     tx();
     broadcast();
-    res.json({ ok: true, matches: plan.matches.length, groups: plan.groups.length });
+    res.json({ ok: true, matches: plan.matches.length, groups: plan.groups.length, summary: plan.summary });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -564,12 +608,94 @@ app.post('/api/matches/:id/result', (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/api/matches/:id/correct-result', (req, res) => {
+  const id = Number(req.params.id);
+  const row = q.getMatch.get(id);
+  if (!row) return res.status(404).json({ error: 'Match not found' });
+  const match = rowToMatch(row);
+  let times;
+  try {
+    times = corrections.parseCorrectedTimes(req.body);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  const matches = listMatches();
+  const safety = corrections.canCorrectMatch(match, matches);
+  if (!safety.ok) return res.status(400).json({ error: safety.error });
+
+  let winnerTeamId;
+  try {
+    winnerTeamId = corrections.calculateWinnerTeamId(match, times);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  const affectedMatches = safety.affectedMatches || [];
+  const tx = db.transaction(() => {
+    recordHistory('match_correction', {
+      matchId: id,
+      matchNumber: match.matchNumber,
+      stage: match.stage,
+      previous: {
+        timeA: match.timeA,
+        timeB: match.timeB,
+        winnerTeamId: match.winnerTeamId,
+        completed: match.completed,
+      },
+      corrected: {
+        timeA: times.timeA,
+        timeB: times.timeB,
+        winnerTeamId,
+      },
+      affectedMatchNumbers: affectedMatches.map(m => m.matchNumber),
+    });
+
+    q.updateMatchResult.run(times.timeA, times.timeB, winnerTeamId, id);
+
+    if (match.stage === 'group') {
+      rebuildKnockoutAfterGroupChange();
+    } else if (match.stage === 'knockout') {
+      clearDownstreamKnockoutMatches(affectedMatches);
+      advanceBracket();
+    }
+
+    setConfig('last_completed_match_number', match.matchNumber);
+    refreshProgressAfterResult(match.matchNumber);
+  });
+  tx();
+  broadcast();
+  res.json({ ok: true, affectedMatchNumbers: affectedMatches.map(m => m.matchNumber) });
+});
+
 app.post('/api/undo', (_req, res) => {
   const last = q.lastHistory.get();
   if (!last) return res.status(400).json({ error: 'Nothing to undo.' });
   const payload = JSON.parse(last.payload);
 
   const tx = db.transaction(() => {
+    if (last.action === 'match_correction' && payload.matchId) {
+      const correctedRow = q.getMatch.get(payload.matchId);
+      const corrected = correctedRow ? rowToMatch(correctedRow) : null;
+      const previous = payload.previous || {};
+      if (previous.completed) {
+        q.updateMatchResult.run(previous.timeA, previous.timeB, previous.winnerTeamId, payload.matchId);
+      } else {
+        q.clearMatchResult.run(payload.matchId);
+      }
+      if (corrected?.stage === 'group') {
+        rebuildKnockoutAfterGroupChange();
+      } else if (corrected?.stage === 'knockout') {
+        const affected = corrections.downstreamKnockoutMatches(corrected, listMatches());
+        clearDownstreamKnockoutMatches(affected);
+        advanceBracket();
+      }
+      setConfig('last_completed_match_number', payload.matchNumber ?? null);
+      refreshProgressAfterResult(payload.matchNumber ?? null);
+      q.deleteHistory.run(last.id);
+      return;
+    }
+
     if (last.action === 'match_result' && payload.matchId) {
       const undoneRow = q.getMatch.get(payload.matchId);
       const wasGroupStage = undoneRow && undoneRow.stage === 'group';
@@ -655,6 +781,17 @@ app.post('/api/settings', (req, res) => {
   const allowed = ['tournament_name'];
   for (const [k, v] of Object.entries(req.body || {})) {
     if (allowed.includes(k)) setConfig(k, String(v).slice(0, 200));
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'tournament_format_options')) {
+    if (getConfig('tournament_state') !== 'registration') {
+      return res.status(400).json({ error: 'Tournament format can only be changed before the tournament starts.' });
+    }
+    if (listMatches().some(m => m.completed)) {
+      return res.status(400).json({ error: 'Completed results exist. Reset before changing the tournament format.' });
+    }
+    const options = tournament.normalizeScheduleOptions(req.body.tournament_format_options);
+    setConfig('tournament_format_options', options);
+    setConfig('schedule_summary', null);
   }
   broadcast();
   res.json({ ok: true });
@@ -830,7 +967,7 @@ app.get('/api/qr', async (req, res) => {
 
 function safeQrTarget(rawTarget) {
   const fallback = serverBaseUrl() + '/spectator';
-  const allowedPaths = new Set(['/spectator', '/leaderboard', '/schedule']);
+  const allowedPaths = new Set(['/spectator', '/leaderboard', '/schedule', '/rotation']);
   const allowedHosts = new Set([
     `localhost:${PORT}`,
     `127.0.0.1:${PORT}`,

@@ -145,6 +145,7 @@ window.F1 = (function () {
   function topbar(pageId) {
     const spectatorMode = new URLSearchParams(window.location.search).has('spectator');
     const links = spectatorMode ? [
+      ['/rotation', 'Rotation', 'rotation'],
       ['/leaderboard?spectator=1', 'Leaderboard', 'leaderboard'],
       ['/schedule?spectator=1', 'Schedule', 'schedule'],
     ] : [
@@ -154,6 +155,7 @@ window.F1 = (function () {
       ['/race', 'Race', 'race'],
       ['/leaderboard', 'Leaderboard', 'leaderboard'],
       ['/schedule', 'Schedule', 'schedule'],
+      ['/rotation', 'Rotation', 'rotation'],
       ['/bracket', 'Bracket', 'bracket'],
       ['/overlay', 'Overlay', 'overlay'],
     ];

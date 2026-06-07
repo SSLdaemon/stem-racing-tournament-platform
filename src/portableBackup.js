@@ -432,6 +432,31 @@ function clearLogoReferences() {
   db.prepare(`UPDATE teams SET logo_path = NULL`).run();
 }
 
+function findMissingLogoReferences(dbPath, logoDir = LOGO_DIR) {
+  const inspectedDb = new Database(dbPath, { readonly: true, fileMustExist: true });
+  try {
+    return inspectedDb.prepare(`SELECT id, name, logo_path FROM teams WHERE logo_path IS NOT NULL AND logo_path != ''`)
+      .all()
+      .map(row => ({ ...row, filename: logoFilenameFromPath(row.logo_path) }))
+      .filter(row => !fs.existsSync(path.join(logoDir, row.filename)));
+  } finally {
+    inspectedDb.close();
+  }
+}
+
+function clearMissingLogoReferences(logoDir = LOGO_DIR) {
+  const missing = db.prepare(`SELECT id, name, logo_path FROM teams WHERE logo_path IS NOT NULL AND logo_path != ''`)
+    .all()
+    .map(row => ({ ...row, filename: logoFilenameFromPath(row.logo_path) }))
+    .filter(row => !fs.existsSync(path.join(logoDir, row.filename)));
+  const clear = db.prepare(`UPDATE teams SET logo_path = NULL WHERE id = ?`);
+  const tx = db.transaction(() => {
+    for (const row of missing) clear.run(row.id);
+  });
+  tx();
+  return missing;
+}
+
 async function restoreFromZip(buffer, { createSafetyArchive } = {}) {
   ensureDirs();
   validateBackupBuffer(buffer);
@@ -461,11 +486,17 @@ async function restoreFromZip(buffer, { createSafetyArchive } = {}) {
     if (includesLogos) fs.mkdirSync(extractedLogos, { recursive: true });
 
     const safetyArchivePath = createSafetyArchive ? await createSafetyArchive() : null;
-    copyDatabaseTables(restoredDbPath, { clearLogoPaths: !includesLogos });
+    copyDatabaseTables(restoredDbPath, { clearLogoPaths: false });
+    const warnings = [];
     if (includesLogos) replaceDir(extractedLogos, LOGO_DIR);
-    else emptyDir(LOGO_DIR);
+    else {
+      const missingLogos = clearMissingLogoReferences(LOGO_DIR);
+      if (missingLogos.length > 0) {
+        warnings.push(`Database-only backup referenced ${missingLogos.length} logo file(s) that were not available; those team logo links were cleared.`);
+      }
+    }
 
-    return { safetyArchivePath, manifest };
+    return { safetyArchivePath, manifest, warnings };
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -490,20 +521,27 @@ function listLocalBackups({ includePaths = false } = {}) {
   const items = [];
   for (const entry of fs.readdirSync(BACKUP_DIR, { withFileTypes: true })) {
     const fullPath = path.join(BACKUP_DIR, entry.name);
-    if (entry.isDirectory() && entry.name.startsWith('archive-') && fs.existsSync(path.join(fullPath, 'tournament.db'))) {
+    if (
+      entry.isDirectory()
+      && (entry.name.startsWith('archive-') || entry.name.startsWith('backup-'))
+      && fs.existsSync(path.join(fullPath, 'tournament.db'))
+    ) {
       const stat = fs.statSync(fullPath);
       const manifest = readArchiveManifest(fullPath);
-      const hasLogos = fs.existsSync(path.join(fullPath, 'logos'));
+      const kind = entry.name.startsWith('archive-') ? 'archive' : 'local';
+      const hasLogos = manifest.sections?.logos === true && fs.existsSync(path.join(fullPath, 'logos'));
       items.push({
-        id: localId('archive', entry.name),
-        kind: 'archive',
+        id: localId(kind, entry.name),
+        kind,
         name: entry.name,
-        label: entry.name.replace(/^archive-/, 'Safety archive '),
+        label: kind === 'archive'
+          ? entry.name.replace(/^archive-/, 'Safety archive ')
+          : entry.name.replace(/^backup-/, 'Local backup '),
         createdAt: manifest.createdAt || new Date(stat.mtimeMs).toISOString(),
         size: stat.size,
         hasLogos,
         restorable: true,
-        warning: hasLogos ? null : 'Archive has database data only.',
+        warning: hasLogos ? null : 'Database-only backup. Existing logo files will be kept where possible; missing logo links will be cleared.',
         ...(includePaths ? { fullPath } : {}),
       });
     } else if (entry.isFile() && entry.name.endsWith('.db')) {
@@ -517,7 +555,7 @@ function listLocalBackups({ includePaths = false } = {}) {
         size: stat.size,
         hasLogos: false,
         restorable: true,
-        warning: 'Database-only backup. Team logos will be cleared on restore.',
+        warning: 'Legacy database-only backup. Existing logo files will be kept where possible; missing logo links will be cleared.',
         ...(includePaths ? { fullPath } : {}),
       });
     }
@@ -536,7 +574,7 @@ function clearLocalBackups() {
   let deleted = 0;
   for (const entry of fs.readdirSync(BACKUP_DIR, { withFileTypes: true })) {
     const fullPath = path.join(BACKUP_DIR, entry.name);
-    if (entry.isDirectory() && entry.name.startsWith('archive-')) {
+    if (entry.isDirectory() && (entry.name.startsWith('archive-') || entry.name.startsWith('backup-'))) {
       fs.rmSync(fullPath, { recursive: true, force: true });
       deleted++;
     } else if (entry.isFile() && entry.name.endsWith('.db')) {
@@ -549,10 +587,11 @@ function clearLocalBackups() {
 
 async function zipLocalBackup(entry) {
   if (!entry?.fullPath) throw new Error('Local backup entry is invalid.');
-  if (entry.kind === 'archive') {
+  if (entry.kind === 'archive' || entry.kind === 'local') {
     const dbPath = path.join(entry.fullPath, 'tournament.db');
     const logosDir = path.join(entry.fullPath, 'logos');
-    const includeLogos = fs.existsSync(logosDir);
+    const manifest = readArchiveManifest(entry.fullPath);
+    const includeLogos = manifest.sections?.logos === true && fs.existsSync(logosDir);
     return zipDatabaseFile({
       dbPath,
       includeLogos,
@@ -583,5 +622,6 @@ module.exports = {
   zipLocalBackup,
   resolveLocalBackup,
   clearLogoReferences,
+  findMissingLogoReferences,
   validateZipEntryName,
 };

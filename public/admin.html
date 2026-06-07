@@ -33,6 +33,7 @@
           <label>Tournament name</label>
           <input id="tournamentName" type="text" placeholder="STEM Racing Championship" />
         </div>
+        <div id="formatControls"></div>
         <div class="row gap-1" id="stateControls"></div>
       </div>
 
@@ -75,6 +76,7 @@
   <section class="card">
     <div class="section-title">Schedule</div>
     <div class="row gap-1" id="scheduleControls"></div>
+    <div id="correctionPanel"></div>
     <div class="mt-2" id="scheduleTable"></div>
   </section>
 
@@ -98,6 +100,9 @@
 (() => {
   const $ = sel => document.querySelector(sel);
   const byId = id => document.getElementById(id);
+  let latestState = null;
+  let correctionMatchNumber = null;
+  let correctionInFlight = false;
 
   // ----- tournament name input (debounced save) -----
   const nameInput = byId('tournamentName');
@@ -134,7 +139,9 @@
     if (!confirm('Generate a fresh schedule? This replaces any existing matches.')) return;
     try {
       const r = await F1.api('POST', '/api/schedule/generate');
-      F1.toast(`Schedule ready: ${r.matches} matches across ${r.groups} group(s)`);
+      const perTeam = r.summary?.approxMatchesPerTeam;
+      const matchHint = perTeam ? ` · ${perTeam.min}-${perTeam.max} matches/team` : '';
+      F1.toast(`Schedule ready: ${r.matches} matches across ${r.groups} group(s)${matchHint}`);
     } catch (e) { F1.toast(e.message, { type: 'error' }); }
   }
 
@@ -181,14 +188,114 @@
     catch (e) { F1.toast(e.message, { type: 'error' }); }
   }
 
-  window.__admin = { deleteTeam, generateSchedule, startTournament, resetTournament, createArchive, setMode, setCurrentMatch, undo, submitResult };
+  async function saveFormatOptions() {
+    const format = byId('formatMode')?.value || 'league_plus_knockout';
+    const targetMatchesPerTeam = Number(byId('targetMatchesPerTeam')?.value || 5);
+    try {
+      await F1.api('POST', '/api/settings', {
+        tournament_format_options: { format, targetMatchesPerTeam, grouping: 'auto' },
+      });
+      if (latestState?.matches?.length) {
+        F1.toast('Format saved. Regenerate the schedule for it to take effect.', { duration: 4500 });
+      } else {
+        F1.toast('Format saved');
+      }
+    } catch (e) {
+      F1.toast(e.message, { type: 'error' });
+    }
+  }
+
+  function openCorrection(matchNumber) {
+    correctionMatchNumber = matchNumber;
+    renderCorrectionPanel(latestState);
+    byId('correctionPanel')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function closeCorrection() {
+    correctionMatchNumber = null;
+    renderCorrectionPanel(latestState);
+  }
+
+  function updateCorrectionPreview() {
+    const panel = byId('correctionPanel');
+    const preview = byId('correctionPreview');
+    if (!panel || !preview || !latestState) return;
+    const match = latestState.matches.find(m => m.matchNumber === correctionMatchNumber);
+    if (!match) return;
+    const teamsById = new Map(latestState.teams.map(t => [t.id, t]));
+    const timeA = Number(byId('correctTimeA')?.value);
+    const timeB = Number(byId('correctTimeB')?.value);
+    if (!Number.isFinite(timeA) || !Number.isFinite(timeB) || timeA <= 0 || timeB <= 0) {
+      preview.innerHTML = 'Enter both corrected times to preview the winner.';
+      return;
+    }
+    if (timeA === timeB) {
+      preview.innerHTML = '<span style="color: var(--red);">Exact ties are not accepted. Enter more precise times or rerun.</span>';
+      return;
+    }
+    const winner = teamsById.get(timeA < timeB ? match.teamAId : match.teamBId);
+    preview.innerHTML = `Recalculated winner: <strong>${escapeHtml(winner?.name || 'TBD')}</strong>`;
+  }
+
+  async function submitCorrection(matchId) {
+    if (correctionInFlight || !latestState) return;
+    const match = latestState.matches.find(m => m.id === matchId);
+    if (!match) return;
+    const teamsById = new Map(latestState.teams.map(t => [t.id, t]));
+    const teamA = teamsById.get(match.teamAId);
+    const teamB = teamsById.get(match.teamBId);
+    const timeA = byId('correctTimeA')?.value;
+    const timeB = byId('correctTimeB')?.value;
+    const parsedA = Number(timeA);
+    const parsedB = Number(timeB);
+    if (!Number.isFinite(parsedA) || !Number.isFinite(parsedB) || parsedA <= 0 || parsedB <= 0) {
+      F1.toast('Enter positive numeric times for both lanes.', { type: 'error' });
+      return;
+    }
+    if (parsedA === parsedB) {
+      F1.toast('Exact ties are not accepted. Enter more precise times or rerun.', { type: 'error' });
+      return;
+    }
+    const winner = teamsById.get(parsedA < parsedB ? match.teamAId : match.teamBId);
+    const message = [
+      `Correct Match ${match.matchNumber}?`,
+      '',
+      `${teamA?.name || 'Team A'}: ${F1.fmtTime(match.timeA)} -> ${Number(parsedA).toFixed(3)}s`,
+      `${teamB?.name || 'Team B'}: ${F1.fmtTime(match.timeB)} -> ${Number(parsedB).toFixed(3)}s`,
+      '',
+      `New winner: ${winner?.name || 'TBD'}`,
+    ].join('\n');
+    if (!confirm(message)) return;
+
+    correctionInFlight = true;
+    renderCorrectionPanel(latestState);
+    try {
+      const res = await F1.api('POST', `/api/matches/${matchId}/correct-result`, { timeA, timeB });
+      const affected = res.affectedMatchNumbers?.length ? ` Cleared downstream match(es): ${res.affectedMatchNumbers.join(', ')}.` : '';
+      F1.toast(`Result corrected.${affected}`, { duration: 5500 });
+      correctionMatchNumber = null;
+    } catch (e) {
+      F1.toast(e.message, { type: 'error', duration: 6000 });
+    } finally {
+      correctionInFlight = false;
+      renderCorrectionPanel(latestState);
+    }
+  }
+
+  window.__admin = {
+    deleteTeam, generateSchedule, startTournament, resetTournament, createArchive,
+    setMode, setCurrentMatch, undo, submitResult, saveFormatOptions,
+    openCorrection, closeCorrection, updateCorrectionPreview, submitCorrection,
+  };
 
   // ----- renderers -----
   F1.onState(s => {
+    latestState = s;
     if (document.activeElement !== nameInput) nameInput.value = s.tournamentName || '';
 
     renderEventStrip(s);
     renderState(s);
+    renderFormatControls(s);
     renderTeams(s);
     renderCurrentMatch(s);
     renderSchedule(s);
@@ -227,6 +334,37 @@
 
     byId('registrationSection').style.opacity = state === 'registration' ? '1' : '0.45';
     byId('registrationSection').style.pointerEvents = state === 'registration' ? 'auto' : 'none';
+  }
+
+  function renderFormatControls(s) {
+    const wrap = byId('formatControls');
+    const options = s.formatOptions || { format: 'league_plus_knockout', targetMatchesPerTeam: 5 };
+    const summary = s.scheduleSummary || {};
+    const locked = s.state !== 'registration' || s.matches.some(m => m.completed);
+    const scheduleExists = s.matches.length > 0;
+    if (wrap.contains(document.activeElement)) return;
+    wrap.innerHTML = `
+      <div class="field" style="max-width: 560px;">
+        <label>Tournament format</label>
+        <div class="row gap-1" style="align-items: end; flex-wrap: wrap;">
+          <select id="formatMode" ${locked ? 'disabled' : ''} onchange="__admin.saveFormatOptions()">
+            <option value="league_plus_knockout" ${options.format === 'league_plus_knockout' ? 'selected' : ''}>League plus knockout</option>
+            <option value="league_only" ${options.format === 'league_only' ? 'selected' : ''}>League only</option>
+          </select>
+          <div class="field" style="margin: 0; width: 180px;">
+            <label>Target races/team</label>
+            <input id="targetMatchesPerTeam" type="number" min="1" max="31" step="1"
+              value="${Number(options.targetMatchesPerTeam || 5)}" ${locked ? 'disabled' : ''}
+              onchange="__admin.saveFormatOptions()" />
+          </div>
+        </div>
+        <p class="muted small">
+          Auto groups · ${summary.totalMatches || 0} scheduled match(es)
+          ${summary.approxMatchesPerTeam ? ` · ${summary.approxMatchesPerTeam.min}-${summary.approxMatchesPerTeam.max} races/team` : ''}
+          ${locked ? ' · locked after start/results' : scheduleExists ? ' · regenerate schedule after changes' : ''}
+        </p>
+        ${summary.warnings?.length ? `<div class="warning-box small">${summary.warnings.map(escapeHtml).join('<br>')}</div>` : ''}
+      </div>`;
   }
 
   function renderTeams(s) {
@@ -333,9 +471,74 @@
     return 'Group';
   }
 
+  function renderCorrectionPanel(s) {
+    const wrap = byId('correctionPanel');
+    if (!correctionMatchNumber || !s) {
+      wrap.innerHTML = '';
+      return;
+    }
+    const match = s.matches.find(m => m.matchNumber === correctionMatchNumber);
+    if (!match || !match.completed) {
+      wrap.innerHTML = '';
+      correctionMatchNumber = null;
+      return;
+    }
+    const teamsById = new Map(s.teams.map(t => [t.id, t]));
+    const teamA = teamsById.get(match.teamAId);
+    const teamB = teamsById.get(match.teamBId);
+    const oldWinner = teamsById.get(match.winnerTeamId);
+    wrap.innerHTML = `
+      <div class="correction-panel">
+        <div class="row" style="align-items: flex-start;">
+          <div>
+            <div class="section-title" style="margin-bottom: 8px;">Correct Result</div>
+            <p class="muted small">Match ${match.matchNumber} · ${escapeHtml(matchLabel(match))}</p>
+          </div>
+          <span class="spacer"></span>
+          <button class="btn ghost small" type="button" onclick="__admin.closeCorrection()" ${correctionInFlight ? 'disabled' : ''}>Close</button>
+        </div>
+        <div class="correction-summary mt-2">
+          <div class="team-cell">
+            <span class="logo" style="${F1.logoStyle(teamA)}"></span>
+            <div>
+              <div class="strong">${escapeHtml(teamA?.name || 'Team A')}</div>
+              <div class="muted small">Existing: <span class="mono">${F1.fmtTime(match.timeA)}</span></div>
+            </div>
+          </div>
+          <div class="team-cell">
+            <span class="logo" style="${F1.logoStyle(teamB)}"></span>
+            <div>
+              <div class="strong">${escapeHtml(teamB?.name || 'Team B')}</div>
+              <div class="muted small">Existing: <span class="mono">${F1.fmtTime(match.timeB)}</span></div>
+            </div>
+          </div>
+        </div>
+        <form class="grid grid-3 mt-2" style="gap: 12px; align-items: end;"
+          oninput="__admin.updateCorrectionPreview()"
+          onsubmit="event.preventDefault(); __admin.submitCorrection(${match.id});">
+          <div class="field">
+            <label>New ${escapeHtml(teamA?.name || 'Team A')} time (s)</label>
+            <input id="correctTimeA" type="number" step="0.001" min="0" value="${match.timeA ?? ''}" ${correctionInFlight ? 'disabled' : ''} required />
+          </div>
+          <div class="field">
+            <label>New ${escapeHtml(teamB?.name || 'Team B')} time (s)</label>
+            <input id="correctTimeB" type="number" step="0.001" min="0" value="${match.timeB ?? ''}" ${correctionInFlight ? 'disabled' : ''} required />
+          </div>
+          <button id="saveCorrectionBtn" class="btn primary" type="submit" ${correctionInFlight ? 'disabled' : ''}>
+            ${correctionInFlight ? 'Saving...' : 'Save Correction'}
+          </button>
+        </form>
+        <div id="correctionPreview" class="correction-preview mt-2">
+          Current winner: <strong>${escapeHtml(oldWinner?.name || 'TBD')}</strong>
+        </div>
+      </div>`;
+    updateCorrectionPreview();
+  }
+
   function renderSchedule(s) {
     const controls = byId('scheduleControls');
     controls.innerHTML = `<span class="muted small">${s.matches.length} matches &middot; ${s.matches.filter(m => m.completed).length} completed</span>`;
+    renderCorrectionPanel(s);
 
     const wrap = byId('scheduleTable');
     if (s.matches.length === 0) {
@@ -362,6 +565,7 @@
                 <td class="mono">${F1.fmtTime(m.timeB)}</td>
                 <td class="strong" style="color:${m.completed ? 'var(--teal)' : 'var(--text-dim)'};">${win ? escapeHtml(win.name) : (m.completed ? '—' : '')}</td>
                 <td>
+                  ${m.completed && a && b ? `<button class="btn ghost small" onclick="__admin.openCorrection(${m.matchNumber})">Correct Result</button>` : ''}
                   ${!m.completed && a && b ? `<button class="btn ghost small" onclick="__admin.setCurrentMatch(${m.matchNumber})">Set Current</button>` : ''}
                 </td>
               </tr>`;

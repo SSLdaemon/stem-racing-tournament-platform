@@ -29,6 +29,7 @@
       <button id="runLocalBackupBtn" class="btn primary" type="button">Back Up Now</button>
       <span id="backupModeStatus" class="muted small"></span>
     </div>
+    <p class="muted small mt-2">New local backups include the database and uploaded team logos. Older legacy backups are labelled database-only.</p>
   </section>
 
   <section class="grid grid-2 backup-grid">
@@ -52,7 +53,7 @@
     <div class="card">
       <div class="section-title">Restore Backup ZIP</div>
       <div class="warning-box">
-        Restoring replaces the current tournament after creating a safety archive.
+        Restoring replaces the current tournament after creating a safety archive. Database-only backups keep existing logo files where possible and clear only broken logo links.
       </div>
       <div class="field">
         <label>Backup ZIP</label>
@@ -176,7 +177,8 @@
       F1.toast('Choose a backup ZIP first.', { type: 'error' });
       return;
     }
-    if (!confirm('Restore this backup? The current tournament will be archived first, then replaced.')) return;
+    const message = 'Restore this backup? The current tournament will be archived first, then replaced.\n\nIf this ZIP is database-only, existing logo files will be kept where possible and missing logo links will be cleared.';
+    if (!confirm(message)) return;
     setBusy(restoreUploadBtn, true);
     restoreStatus.textContent = 'Restoring...';
     try {
@@ -185,7 +187,8 @@
       const res = await F1.api('POST', '/api/backups/restore', fd, true);
       backupFile.value = '';
       restoreStatus.textContent = 'Restored';
-      F1.toast(res.safetyArchivePath ? 'Restored. Safety archive created first.' : 'Restored', { duration: 5000 });
+      const warningText = Array.isArray(res.warnings) && res.warnings.length ? ` ${res.warnings.join(' ')}` : '';
+      F1.toast((res.safetyArchivePath ? 'Restored. Safety archive created first.' : 'Restored') + warningText, { duration: 7000 });
       await loadLibrary();
     } catch (err) {
       restoreStatus.textContent = '';
@@ -202,7 +205,8 @@
     if (!confirm(message)) return;
     try {
       const res = await F1.api('POST', '/api/backups/restore-local', { id });
-      F1.toast(res.safetyArchivePath ? 'Local backup restored. Safety archive created first.' : 'Local backup restored', { duration: 5000 });
+      const warningText = Array.isArray(res.warnings) && res.warnings.length ? ` ${res.warnings.join(' ')}` : '';
+      F1.toast((res.safetyArchivePath ? 'Local backup restored. Safety archive created first.' : 'Local backup restored') + warningText, { duration: 7000 });
       await loadLibrary();
     } catch (err) {
       F1.toast(err.message, { type: 'error' });
@@ -295,7 +299,7 @@
                   <div class="strong">${escapeHtml(item.label || item.name)}</div>
                   ${item.warning ? `<div class="muted small">${escapeHtml(item.warning)}</div>` : ''}
                 </td>
-                <td><span class="badge ${item.kind === 'archive' ? 'group' : 'completed'}">${item.kind === 'archive' ? 'Archive' : 'Auto'}</span></td>
+                <td><span class="badge ${item.kind === 'archive' ? 'group' : item.kind === 'local' ? 'current' : 'completed'}">${item.kind === 'archive' ? 'Archive' : item.kind === 'local' ? 'Local' : 'Legacy DB'}</span></td>
                 <td>${escapeHtml(formatDate(item.createdAt))}</td>
                 <td>${item.hasLogos ? 'Included' : 'No logos'}</td>
                 <td>${escapeHtml(formatBytes(item.size))}</td>

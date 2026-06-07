@@ -12,6 +12,28 @@
  */
 
 const MIN_MATCHES_PER_TEAM = 5;
+const FORMAT_LEAGUE_ONLY = 'league_only';
+const FORMAT_LEAGUE_PLUS_KNOCKOUT = 'league_plus_knockout';
+const FORMATS = new Set([FORMAT_LEAGUE_ONLY, FORMAT_LEAGUE_PLUS_KNOCKOUT]);
+const DEFAULT_SCHEDULE_OPTIONS = Object.freeze({
+  format: FORMAT_LEAGUE_PLUS_KNOCKOUT,
+  targetMatchesPerTeam: MIN_MATCHES_PER_TEAM,
+  grouping: 'auto',
+});
+
+function normalizeScheduleOptions(options = {}) {
+  const raw = options && typeof options === 'object' ? options : {};
+  const format = FORMATS.has(raw.format) ? raw.format : DEFAULT_SCHEDULE_OPTIONS.format;
+  const parsedTarget = Number(raw.targetMatchesPerTeam);
+  const targetMatchesPerTeam = Number.isInteger(parsedTarget) && parsedTarget >= 1
+    ? Math.min(parsedTarget, 31)
+    : DEFAULT_SCHEDULE_OPTIONS.targetMatchesPerTeam;
+  return {
+    format,
+    targetMatchesPerTeam,
+    grouping: 'auto',
+  };
+}
 
 function shuffle(arr, rng = Math.random) {
   const a = [...arr];
@@ -60,8 +82,12 @@ function roundRobin(teams) {
  * Build the full group stage schedule (interleaved across groups so each round
  * advances all groups roughly together, which feels better on the big screen).
  */
-function buildGroupStage(groups) {
-  const perGroupRounds = groups.map(roundRobin);
+function buildGroupStage(groups, { targetMatchesPerTeam = null } = {}) {
+  const perGroupRounds = groups.map((group) => {
+    const rounds = roundRobin(group);
+    if (targetMatchesPerTeam == null) return rounds;
+    return rounds.slice(0, Math.min(rounds.length, targetMatchesPerTeam));
+  });
   const matches = [];
   const maxRounds = Math.max(...perGroupRounds.map(r => r.length));
   let matchNum = 1;
@@ -88,8 +114,8 @@ function buildGroupStage(groups) {
 /**
  * Count how many matches each team currently has scheduled.
  */
-function countMatches(matches) {
-  const counts = new Map();
+function countMatches(matches, teamIds = []) {
+  const counts = new Map(teamIds.map(id => [id, 0]));
   for (const m of matches) {
     counts.set(m.teamAId, (counts.get(m.teamAId) || 0) + 1);
     counts.set(m.teamBId, (counts.get(m.teamBId) || 0) + 1);
@@ -101,8 +127,8 @@ function countMatches(matches) {
  * Add cross-group matches until every team has at least MIN_MATCHES_PER_TEAM.
  * Pairs lowest-match teams across different groups without repeating pairings.
  */
-function addBonusMatches(matches, groups, teamToGroup, startMatchNum) {
-  const counts = countMatches(matches);
+function addBonusMatches(matches, groups, teamToGroup, startMatchNum, targetMatchesPerTeam = MIN_MATCHES_PER_TEAM) {
+  const counts = countMatches(matches, groups.flat());
   const existingPairs = new Set(
     matches.map(m => [m.teamAId, m.teamBId].sort((a, b) => a - b).join(':'))
   );
@@ -114,7 +140,7 @@ function addBonusMatches(matches, groups, teamToGroup, startMatchNum) {
   while (safety-- > 0) {
     // find teams below threshold, sorted by match count asc
     const needy = [...counts.entries()]
-      .filter(([, c]) => c < MIN_MATCHES_PER_TEAM)
+      .filter(([, c]) => c < targetMatchesPerTeam)
       .sort((a, b) => a[1] - b[1]);
     if (needy.length === 0) break;
 
@@ -188,13 +214,47 @@ function avoidBackToBack(matches) {
  * Top-level: generate the full group stage schedule.
  * Knockout matches are created later once group results are final.
  */
-function generateSchedule(teamIds) {
+function buildScheduleSummary({ teamCount, groups, matches, options, warnings = [] }) {
+  const counts = countMatches(matches, groups.flat());
+  const values = [...counts.values()];
+  const min = values.length ? Math.min(...values) : 0;
+  const max = values.length ? Math.max(...values) : 0;
+  const average = values.length
+    ? Math.round((values.reduce((sum, count) => sum + count, 0) / values.length) * 10) / 10
+    : 0;
+  return {
+    format: options.format,
+    targetMatchesPerTeam: options.targetMatchesPerTeam,
+    knockoutEnabled: options.format === FORMAT_LEAGUE_PLUS_KNOCKOUT,
+    grouping: options.grouping,
+    teamCount,
+    groups: groups.length,
+    totalMatches: matches.length,
+    approxMatchesPerTeam: { min, max, average },
+    warnings,
+  };
+}
+
+function summarizeExistingSchedule({ teamCount, groups, matches, options }) {
+  return buildScheduleSummary({
+    teamCount,
+    groups,
+    matches,
+    options: normalizeScheduleOptions(options),
+  });
+}
+
+function generateSchedule(teamIds, options = {}) {
   if (teamIds.length < 4) {
     throw new Error(`Need at least 4 teams to run a tournament (got ${teamIds.length}).`);
   }
   if (teamIds.length > 32) {
     throw new Error(`This platform supports up to 32 teams (got ${teamIds.length}).`);
   }
+  const normalizedOptions = normalizeScheduleOptions(options);
+  const hasExplicitTarget = options
+    && typeof options === 'object'
+    && Object.prototype.hasOwnProperty.call(options, 'targetMatchesPerTeam');
   const n = teamIds.length;
   // 4-8 teams: single group, round-robin, top 4 -> SF. Still guarantees 3-7 matches each.
   // 9-12: 2 groups, top 4 each -> QF
@@ -209,14 +269,32 @@ function generateSchedule(teamIds) {
   const teamToGroup = new Map();
   groups.forEach((g, i) => g.forEach(id => teamToGroup.set(id, i)));
 
-  let matches = buildGroupStage(groups);
-  addBonusMatches(matches, groups, teamToGroup, matches.length + 1);
+  let matches = buildGroupStage(groups, {
+    targetMatchesPerTeam: hasExplicitTarget ? normalizedOptions.targetMatchesPerTeam : null,
+  });
+  addBonusMatches(matches, groups, teamToGroup, matches.length + 1, normalizedOptions.targetMatchesPerTeam);
   matches = avoidBackToBack(matches);
+  const counts = countMatches(matches, teamIds);
+  const warnings = [];
+  const minMatches = Math.min(...counts.values());
+  if (minMatches < normalizedOptions.targetMatchesPerTeam) {
+    warnings.push(`Requested ${normalizedOptions.targetMatchesPerTeam} matches per team; the schedule could not reach that without repeat pairings for this team count.`);
+  }
+  const summary = buildScheduleSummary({
+    teamCount: n,
+    groups,
+    matches,
+    options: normalizedOptions,
+    warnings,
+  });
 
   return {
     numGroups,
     groups,
     matches,
+    options: normalizedOptions,
+    knockoutEnabled: normalizedOptions.format === FORMAT_LEAGUE_PLUS_KNOCKOUT,
+    summary,
   };
 }
 
@@ -430,7 +508,13 @@ function buildKnockoutBracket(groupStandings, startMatchNum) {
 
 module.exports = {
   MIN_MATCHES_PER_TEAM,
+  FORMAT_LEAGUE_ONLY,
+  FORMAT_LEAGUE_PLUS_KNOCKOUT,
+  DEFAULT_SCHEDULE_OPTIONS,
+  normalizeScheduleOptions,
   generateSchedule,
+  countMatches,
+  summarizeExistingSchedule,
   computeStandings,
   computeGroupStandings,
   computePolePosition,

@@ -118,6 +118,7 @@ const q = {
   getMatchByNumber: db.prepare(`SELECT * FROM matches WHERE match_number = ?`),
   getMatchBySlot: db.prepare(`SELECT * FROM matches WHERE bracket_slot = ?`),
   deleteAllMatches: db.prepare(`DELETE FROM matches`),
+  deleteKnockoutMatches: db.prepare(`DELETE FROM matches WHERE stage = 'knockout'`),
   resetMatchesAutoIncrement: db.prepare(`DELETE FROM sqlite_sequence WHERE name = 'matches'`),
   updateMatchResult: db.prepare(`
     UPDATE matches

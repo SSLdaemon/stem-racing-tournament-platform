@@ -11,6 +11,7 @@ const networkAccess = require('../src/networkAccess');
 const { csvCell } = require('../src/export');
 const portableBackup = require('../src/portableBackup');
 const backupScheduler = require('../src/backup');
+const corrections = require('../src/matchCorrections');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -111,6 +112,56 @@ assert.equal(standings8.length, 1, '8-team schedule should produce 1 group');
 assert.equal(tournament.buildKnockoutBracket(standings8, completed8.length + 1).length, 4,
   '8-team schedule should produce a 4-match knockout bracket');
 
+const leagueOnlyPlan = tournament.generateSchedule(
+  Array.from({ length: 12 }, (_, i) => i + 1),
+  { format: 'league_only', targetMatchesPerTeam: 3 }
+);
+assert.equal(leagueOnlyPlan.options.format, 'league_only',
+  'schedule options should preserve explicit league-only format');
+assert.equal(leagueOnlyPlan.summary.knockoutEnabled, false,
+  'league-only mode should disable knockout generation');
+const leagueOnlyCounts = tournament.countMatches(leagueOnlyPlan.matches);
+assert.deepEqual([...leagueOnlyCounts.values()].sort((a, b) => a - b), Array(12).fill(3),
+  '12-team league-only target of 3 should produce exactly 3 matches per team');
+
+const highTargetPlan = tournament.generateSchedule(
+  [1, 2, 3, 4],
+  { format: 'league_plus_knockout', targetMatchesPerTeam: 10 }
+);
+assert.equal(highTargetPlan.summary.approxMatchesPerTeam.min, 3,
+  'impossible high target should clamp to available unique pairings');
+assert(highTargetPlan.summary.warnings.some(msg => /could not reach/i.test(msg)),
+  'impossible high target should explain that the requested target was not reachable');
+
+assert.equal(tournament.normalizeScheduleOptions({ format: 'bad', targetMatchesPerTeam: 'bad' }).format, 'league_plus_knockout',
+  'invalid stored format options should fall back to the current default behavior');
+
+assert.throws(
+  () => corrections.parseCorrectedTimes({ timeA: '1.234', timeB: '1.234' }),
+  /tied/i,
+  'result corrections should reject exact ties'
+);
+const correctionMatch = { id: 1, matchNumber: 4, stage: 'knockout', bracketSlot: 'QF1', completed: true, teamAId: 1, teamBId: 2 };
+const downstreamCompleted = [
+  correctionMatch,
+  { id: 2, matchNumber: 5, stage: 'knockout', bracketSlot: 'SF1', dependsOn: ['QF1-winner', 'QF2-winner'], completed: true },
+];
+assert.equal(corrections.canCorrectMatch(correctionMatch, downstreamCompleted).ok, false,
+  'knockout corrections should be blocked when completed downstream matches depend on the result');
+const downstreamOpen = [
+  correctionMatch,
+  { id: 2, matchNumber: 5, stage: 'knockout', bracketSlot: 'SF1', dependsOn: ['QF1-winner', 'QF2-winner'], completed: false },
+  { id: 3, matchNumber: 6, stage: 'knockout', bracketSlot: 'FINAL', dependsOn: ['SF1-winner', 'SF2-winner'], completed: false },
+];
+assert.deepEqual(corrections.downstreamKnockoutMatches(correctionMatch, downstreamOpen).map(m => m.bracketSlot), ['SF1', 'FINAL'],
+  'knockout corrections should identify every unresolved downstream pairing to clear');
+const blockedGroupCorrection = corrections.canCorrectMatch(
+  { id: 10, matchNumber: 2, stage: 'group', completed: true },
+  [{ id: 11, matchNumber: 40, stage: 'knockout', completed: true }]
+);
+assert.equal(blockedGroupCorrection.ok, false,
+  'group corrections should be blocked after knockout results have completed');
+
 assert.equal(security.requireAdmin, undefined, 'admin pages should not require a password in school-event mode');
 assert.equal(security.isAuthorizedBasic, undefined, 'Basic auth should not be part of school-event mode');
 const remoteRequest = (requestPath, { method = 'GET', query = {}, remoteAddress = '192.168.1.40' } = {}) => ({
@@ -128,10 +179,14 @@ assert.equal(networkAccess.spectatorRedirectPath(remoteRequest('/leaderboard')),
   'remote leaderboard requests should be forced into spectator mode');
 assert.equal(networkAccess.spectatorRedirectPath(remoteRequest('/leaderboard', { query: { spectator: '1' } })), null,
   'remote spectator leaderboard requests should not redirect repeatedly');
+assert.equal(networkAccess.spectatorRedirectPath(remoteRequest('/rotation')), null,
+  'remote rotation display should not be redirected away from the rotation page');
 for (const page of ['/admin', '/backups', '/race', '/bracket', '/overlay']) {
   assert.equal(networkAccess.isRestrictedNetworkRequest(remoteRequest(page)), true,
     `remote clients should not be allowed to open ${page}`);
 }
+assert.equal(networkAccess.isRestrictedNetworkRequest(remoteRequest('/rotation')), false,
+  'remote clients should be allowed to open the read-only rotation display');
 assert.equal(networkAccess.isRestrictedNetworkRequest(remoteRequest('/api/state')), false,
   'remote spectator screens should be allowed to read live state');
 assert.equal(networkAccess.isRestrictedNetworkRequest(remoteRequest('/api/race/mode', { method: 'POST' })), true,
@@ -191,6 +246,8 @@ assert.equal(typeof portableBackup.listLocalBackups, 'function', 'portable backu
 assert.equal(typeof portableBackup.clearLocalBackups, 'function', 'portable backup module should clear local backups');
 assert.equal(typeof portableBackup.validateZipEntryName, 'function', 'portable backup module should validate ZIP paths');
 assert.equal(typeof portableBackup.validateBackupBuffer, 'function', 'portable backup module should validate backup contents');
+assert.equal(typeof portableBackup.findMissingLogoReferences, 'function',
+  'portable backup module should expose missing-logo reference detection for safe legacy restores');
 assert.equal(typeof backupScheduler.backupOnce, 'function', 'backup scheduler should support manual local backups');
 assert.equal(typeof backupScheduler.getStatus, 'function', 'backup scheduler should report backup mode');
 assert.equal(typeof backupScheduler.setMode, 'function', 'backup scheduler should update backup mode');
@@ -205,6 +262,17 @@ assert(backupsPage.includes('Auto Backup'), 'Backups page should expose auto bac
 assert(backupsPage.includes('Manual Backup'), 'Backups page should expose manual backup mode');
 assert(backupsPage.includes("F1.api('POST', '/api/backups/mode'"), 'Backups page should call the backup mode API');
 assert(backupsPage.includes("F1.api('POST', '/api/backups/run'"), 'Backups page should call the manual backup API');
+assert(backupsPage.includes('Database-only'), 'Backups page should warn clearly about database-only restores');
+
+const rotationPagePath = path.join(ROOT, 'public/rotation.html');
+assert(fs.existsSync(rotationPagePath), 'rotation display page should exist');
+const rotationPage = fs.readFileSync(rotationPagePath, 'utf8');
+assert(rotationPage.includes('Event Live Rotation'), 'rotation page should show a clear public display title');
+assert(rotationPage.includes('setInterval'), 'rotation page should advance automatically');
+assert(rotationPage.includes('keydown'), 'rotation page should support keyboard/manual advance');
+assert(common.includes('/rotation'), 'topbar should link to the rotation display');
+const spectatorPage = fs.readFileSync(path.join(ROOT, 'public/spectator.html'), 'utf8');
+assert(spectatorPage.includes('/rotation'), 'spectator menu should link to the rotation display');
 
 async function runPortableBackupChecks() {
   const logoDir = path.join(ROOT, 'data/logos');
